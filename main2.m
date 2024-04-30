@@ -3,6 +3,34 @@ classdef main2 < matlab.apps.AppBase
     % Properties that correspond to app components
     properties (Access = public)
         PositroniumdotMATMododetomografaUIFigure  matlab.ui.Figure
+        flipvolButton                 matlab.ui.control.Button
+        nCorteEditField               matlab.ui.control.NumericEditField
+        Button_6                      matlab.ui.control.Button
+        Button_5                      matlab.ui.control.Button
+        CrosshairctrlLabel            matlab.ui.control.Label
+        Button_4                      matlab.ui.control.Button
+        Button_3                      matlab.ui.control.Button
+        Button_2                      matlab.ui.control.Button
+        Button                        matlab.ui.control.Button
+        FWHMButtonGroup               matlab.ui.container.ButtonGroup
+        RefrescarButton               matlab.ui.control.Button
+        AjustarejeCheckBox            matlab.ui.control.CheckBox
+        NumricoCheckBox               matlab.ui.control.CheckBox
+        PuntualCheckBox               matlab.ui.control.CheckBox
+        RadiocmEditField              matlab.ui.control.NumericEditField
+        RadiocmEditFieldLabel         matlab.ui.control.Label
+        UmbralEditField               matlab.ui.control.NumericEditField
+        UmbralEditFieldLabel          matlab.ui.control.Label
+        IniciarButton                 matlab.ui.control.Button
+        MximoButton                   matlab.ui.control.RadioButton
+        RadioEditField                matlab.ui.control.NumericEditField
+        RadioEditFieldLabel           matlab.ui.control.Label
+        PuntualButton                 matlab.ui.control.RadioButton
+        PromedioButton                matlab.ui.control.RadioButton
+        WindowWidthEditField          matlab.ui.control.NumericEditField
+        WindowWidthEditFieldLabel     matlab.ui.control.Label
+        WindowLevelEditField          matlab.ui.control.NumericEditField
+        WindowLevelEditFieldLabel     matlab.ui.control.Label
         vidamediaLabel                matlab.ui.control.Label
         radionuclidoLabel             matlab.ui.control.Label
         Actividad0Label               matlab.ui.control.Label
@@ -53,6 +81,7 @@ classdef main2 < matlab.apps.AppBase
         DDMMAAAAalasHHMMSSLabel       matlab.ui.control.Label
         outputTextArea                matlab.ui.control.TextArea
         CorrerButton                  matlab.ui.control.Button
+        UIAxes5                       matlab.ui.control.UIAxes
         UIAxes4                       matlab.ui.control.UIAxes
         UIAxes3                       matlab.ui.control.UIAxes
         UIAxes2                       matlab.ui.control.UIAxes
@@ -61,6 +90,9 @@ classdef main2 < matlab.apps.AppBase
 
     
     properties (Access = private)
+        CTDIR = 'SE000001';
+        PTDIR = 'SE000003';%'SE000002';
+        PTUDIR = 'SE000004';%'SE000004';
         output
         mod2DIR
         cortes
@@ -70,6 +102,7 @@ classdef main2 < matlab.apps.AppBase
         buttonDown_fusion_enable = 0;
         %%
         topogram_index
+        %topogram_rot = false;
         ct_volume
         pt_volume
         ptu_volume
@@ -81,6 +114,7 @@ classdef main2 < matlab.apps.AppBase
         ptu_time
         pt_edges_pixel
         ptu_edges_pixel
+        ct_edges_on = 0
         SUV_pt
         SUV_ptu
         %%
@@ -106,8 +140,25 @@ classdef main2 < matlab.apps.AppBase
         cambiar_x_y = false;
         CT_resized
         fused
+        WW
+        WL
+        %% fwhm
+        axial_plot
+        linea_perfil_px
+        fwhm_fig
+        fwhm_vec;fwhm_vec_z;fwhm_vec_x;fwhm_vec_y
+        fwhm_max_point
+        fwhm_points
+        fwhm_shadow
+        fwhm_points_activated = true;
+        min_x_axis
+        max_x_axis
         %%
         running = true
+        %%
+        main_fig1
+        main_fig2
+        main_fig3
     end
     
     methods (Access = private)
@@ -145,12 +196,29 @@ classdef main2 < matlab.apps.AppBase
             val1 = val1-1; val2 = val2+1; val3 = val3-1; val4 = val4+1;
             altura = val2-val1+1;
             ancho = val4-val3+1;
+            topograma = matrix(val1:val2,val3:val4,1);
             UIAXES.XLim = [1,ancho];
             UIAXES.YLim = [1,altura];
-            topograma = matrix(val1:val2,val3:val4,1);
+
+            
+            %% configuramos los niveles de grises del topograma
+            WiWi=info.WindowWidth(1);
+            WiLe=info.WindowCenter(1);
+            
+            topograma = double(topograma*info.RescaleSlope+info.RescaleIntercept);
+            if altura > ancho
+                camroll(UIAXES,270)
+                %topograma = rot90(topograma,2);
+            end
+            topograma = ind2rgb(int64(topograma-(WiLe-WiWi/2)), gray(WiWi));            
+            
+            %% mostramos la figura
+            imagesc(UIAXES,topograma,"HitTest","off");colormap(UIAXES,"gray");
+            UIAXES.PlotBoxAspectRatio = [4,10,1];
             app.output = "Tamaño de topograma: "+convertCharsToStrings(int2str(size(topograma)))+newline+app.output; 
+            app.outputTextArea.Value =  app.output; 
+            app.output = "Tamaño de volumen: "+convertCharsToStrings(int2str(size(app.SUV_pt)))+newline+app.output; 
             app.outputTextArea.Value =  app.output; drawnow limitrate
-            imshow(topograma,[900 1200], 'Parent', UIAXES)
         end
 
         function [mins,correctDate] = ConvertChar2Minutes(app, CharDate)
@@ -198,13 +266,20 @@ classdef main2 < matlab.apps.AppBase
             else
                 lista = [char({lista.name})];
             end
+
+
             info = dicominfo(fullfile(directorio,carpeta,lista(1,:)));
             ancho = double(info.Width);
             altura = double(info.Height);
-            volumen = zeros(altura,ancho,cortes,'uint16');
+            
             loc_vector = zeros(1,cortes);
             tiempo = zeros(1,cortes);
             RescaleSlope = zeros(1,cortes);
+            if pt_true == 1
+                volumen = zeros(altura,ancho,cortes,'uint16');
+            else 
+                volumen = zeros(altura,ancho,cortes,'double');
+            end
             for n = 1:cortes
                 info_corte = dicominfo(fullfile(directorio,carpeta,lista(n,:)));
                 AcquisitionTime = info_corte.AcquisitionTime;
@@ -215,53 +290,179 @@ classdef main2 < matlab.apps.AppBase
                 tiempo(1,n) = hora*60+minutos+segundos/60;
                 info = dicominfo(fullfile(directorio,carpeta,lista(n,:)));
                 loc_vector(1,n) = info.SliceLocation;
-                volumen(:,:,n) = dicomread(info); 
+                if pt_true == 1
+                    volumen(:,:,n) = dicomread(info);
+                else 
+                    volumen(:,:,n) = double(dicomread(info_corte))*info_corte.RescaleSlope+info_corte.RescaleIntercept; 
+                end
             end
             
         end
-        function [lines] = crosshair_lines(~,x,y,UI_AXES)
-            
+        function [lines] = crosshair_lines(app,x,y,UI_AXES)
             lineX = xline(UI_AXES, x,'Color','y','linewidth',0.8,"HitTest","off");
             lineY = yline(UI_AXES, y,'Color','y','linewidth',0.8,"HitTest","off");
             lines = [lineX, lineY];
+            fwhm_plot(app,x,y,app.CorteSlider.Value)
         end
-        
+        %% fwhm
+        function [] = fwhm_plot(app,x,y,z)
+            delete([app.axial_plot,app.fwhm_fig,app.fwhm_shadow])
+            if app.fwhm_points_activated
+                delete([app.fwhm_max_point,app.fwhm_points])
+                app.fwhm_points_activated = false;
+            end
+            app.IniciarButton.Enable ="on";
+            hold(app.UIAxes5,"on")
+            x_cord = [-app.RadiocmEditField.Value app.RadiocmEditField.Value app.RadiocmEditField.Value -app.RadiocmEditField.Value];
+            y_cord = [1000 1000 -1000 -1000];
+            app.fwhm_shadow = fill(app.UIAxes5,x_cord,y_cord,'cyan','FaceAlpha',0.3,'EdgeAlpha',0);
+            if app.PromedioButton.Value
+                c_z = [x y];
+                %c_x = [z y];
+                %c_y = [z x];
+                r = app.RadioEditField.Value;
+                pos_z = [c_z-r 2*r 2*r];
+                %pos_x = [c_x-r 2*r 2*r];
+                %pos_y = [c_y-r 2*r 2*r];
+                app.fwhm_fig = rectangle(app.UIAxes2,'Position',pos_z,'Curvature',[1 1],'EdgeColor','y');
+                %
+                tam = size(app.SUV_pt(:,:,:));
+                [x_1,y_1] = meshgrid(1:tam(2),1:tam(1));
+                [z_1,y_2] = meshgrid(1:tam(3),1:tam(1));
+                [z_2,x_2] = meshgrid(1:tam(3),1:tam(2));
+
+                fwhm_map_z = zeros(tam(1),tam(2),'logical');
+                fwhm_map_x = zeros(tam(1),tam(3),'logical');
+                fwhm_map_y = zeros(tam(2),tam(3),'logical');
+
+                fwhm_map_z(sqrt((x_1-x).^2+(y_1-y).^2)<=r) = true;
+                fwhm_map_x(sqrt((y_2-y).^2+(z_1-z).^2)<=r) = true;
+                fwhm_map_y(sqrt((x_2-x).^2+(z_2-z).^2)<=r) = true;
+
+                app.fwhm_vec_z = zeros(1,tam(3));
+                app.fwhm_vec_x = zeros(1,tam(2));
+                app.fwhm_vec_y = zeros(1,tam(1));
+
+                for n = 1:tam(3)
+                    SUV_volume_corte = app.SUV_pt(:,:,n);
+                    app.fwhm_vec_z(n) = mean(SUV_volume_corte(fwhm_map_z));
+                end
+                for n = 1:tam(2)
+                    SUV_volume_corte = squeeze(app.SUV_pt(:,n,:));
+                    app.fwhm_vec_x(n) = mean(SUV_volume_corte(fwhm_map_x));
+                end
+                for n = 1:tam(1)
+                    SUV_volume_corte = squeeze(app.SUV_pt(n,:,:));
+                    app.fwhm_vec_y(n) = mean(SUV_volume_corte(fwhm_map_y));
+                end
+                vec_z = ((0:tam(3)-1)-z)*app.ct_info.SliceThickness/10;
+                vec_x = ((0:tam(2)-1)-x)*app.pt_info.PixelSpacing(1)/10;
+                vec_y = ((0:tam(1)-1)-y)*app.pt_info.PixelSpacing(2)/10;
+                app.axial_plot(1) = plot(app.UIAxes5,vec_z,app.fwhm_vec_z,"Color",'b',"LineWidth",1,"LineStyle","-",'Marker','.');
+                app.axial_plot(2) = plot(app.UIAxes5,vec_x,app.fwhm_vec_x,"Color",'g',"LineWidth",1,"LineStyle","-",'Marker','.');
+                app.axial_plot(3) = plot(app.UIAxes5,vec_y,app.fwhm_vec_y,"Color",'r',"LineWidth",1,"LineStyle","-",'Marker','.');
+            elseif app.PuntualButton.Value
+                app.IniciarButton.Enable ="off";
+                %app.fwhm_vec = squeeze(app.SUV_pt(y,x,:));
+                %app.axial_plot = plot(app.UIAxes5,1:app.cortes,app.fwhm_vec,"Color",'b',"LineWidth",1,"LineStyle","-",'Marker','.');
+                app.fwhm_vec_z = squeeze(app.SUV_pt(y,x,:));
+                app.fwhm_vec_x = squeeze(app.SUV_pt(y,:,z));
+                app.fwhm_vec_y = squeeze(app.SUV_pt(:,x,z));
+                tam = size(app.SUV_pt(:,:,:));
+                vec_z = ((0:tam(3)-1)-z)*app.ct_info.SliceThickness/10;
+                vec_x = ((0:tam(1)-1)-x)*app.pt_info.PixelSpacing(1)/10;
+                vec_y = ((0:tam(2)-1)-y)*app.pt_info.PixelSpacing(2)/10;
+                app.axial_plot(1) = plot(app.UIAxes5,vec_z,app.fwhm_vec_z,"Color",'b',"LineWidth",1,"LineStyle","-",'Marker','.');
+                app.axial_plot(2) = plot(app.UIAxes5,vec_x,app.fwhm_vec_x,"Color",'g',"LineWidth",1,"LineStyle","-",'Marker','.');
+                app.axial_plot(3) = plot(app.UIAxes5,vec_y,app.fwhm_vec_y,"Color",'r',"LineWidth",1,"LineStyle","-",'Marker','.');
+            elseif app.MximoButton.Value
+                %
+                c_z = [x y];
+                %c_x = [z y];
+                %c_y = [z x];
+                r = app.RadioEditField.Value;
+                pos_z = [c_z-r 2*r 2*r];
+                %pos_x = [c_x-r 2*r 2*r];
+                %pos_y = [c_y-r 2*r 2*r];
+                app.fwhm_fig = rectangle(app.UIAxes2,'Position',pos_z,'Curvature',[1 1],'EdgeColor','y');
+                %
+                tam = size(app.SUV_pt(:,:,:));
+                [x_1,y_1] = meshgrid(1:tam(2),1:tam(1));
+                [z_1,y_2] = meshgrid(1:tam(3),1:tam(1));
+                [z_2,x_2] = meshgrid(1:tam(3),1:tam(2));
+
+                fwhm_map_z = zeros(tam(1),tam(2),'logical');
+                fwhm_map_x = zeros(tam(1),tam(3),'logical');
+                fwhm_map_y = zeros(tam(2),tam(3),'logical');
+
+                fwhm_map_z(sqrt((x_1-x).^2+(y_1-y).^2)<=r) = true;
+                fwhm_map_x(sqrt((y_2-y).^2+(z_1-z).^2)<=r) = true;
+                fwhm_map_y(sqrt((x_2-x).^2+(z_2-z).^2)<=r) = true;
+
+                app.fwhm_vec_z = zeros(1,tam(3));
+                app.fwhm_vec_x = zeros(1,tam(2));
+                app.fwhm_vec_y = zeros(1,tam(1));
+
+                for n = 1:tam(3)
+                    SUV_volume_corte = app.SUV_pt(:,:,n);
+                    app.fwhm_vec_z(n) = max(SUV_volume_corte(fwhm_map_z));
+                end
+                for n = 1:tam(2)
+                    SUV_volume_corte = squeeze(app.SUV_pt(:,n,:));
+                    app.fwhm_vec_x(n) = max(SUV_volume_corte(fwhm_map_x));
+                end
+                for n = 1:tam(1)
+                    SUV_volume_corte = squeeze(app.SUV_pt(n,:,:));
+                    app.fwhm_vec_y(n) = max(SUV_volume_corte(fwhm_map_y));
+                end
+                vec_z = ((0:tam(3)-1)-z)*app.ct_info.SliceThickness/10;
+                vec_x = ((0:tam(2)-1)-x)*app.pt_info.PixelSpacing(1)/10;
+                vec_y = ((0:tam(1)-1)-y)*app.pt_info.PixelSpacing(2)/10;
+                app.axial_plot(1) = plot(app.UIAxes5,vec_z,app.fwhm_vec_z,"Color",'b',"LineWidth",1,"LineStyle","-",'Marker','.');
+                app.axial_plot(2) = plot(app.UIAxes5,vec_x,app.fwhm_vec_x,"Color",'g',"LineWidth",1,"LineStyle","-",'Marker','.');
+                app.axial_plot(3) = plot(app.UIAxes5,vec_y,app.fwhm_vec_y,"Color",'r',"LineWidth",1,"LineStyle","-",'Marker','.');
+            end
+            app.min_x_axis = min([min(vec_z) min(vec_x) min(vec_y)]);
+            app.max_x_axis = max([max(vec_z) max(vec_x) max(vec_y)]);
+            ylim(app.UIAxes5,[0 max([max(app.fwhm_vec_z) max(app.fwhm_vec_x) max(app.fwhm_vec_y)])])
+        end
+
         function []= draw_figs(app,corte,x,y)
-            
+            delete([app.main_fig1,app.main_fig2,app.main_fig3])
             corte =  round(corte);
             if app.roi_activated 
                 ROI_map_SUV_CT(app,x,y,app.SUV_pt(:,:,corte))
             end
-            imagesc(app.UIAxes,app.ct_volume(:,:,corte),"HitTest","off",[app.ct_info.WindowWidth(1),app.ct_info.WindowWidth(2)]);colormap(app.UIAxes,"gray");
+            app.main_fig1 = imagesc(app.UIAxes,app.ct_volume(:,:,corte),"HitTest","off",[app.WL-app.WW/2,app.WL+app.WW/2]);colormap(app.UIAxes,"gray");
             app.UIAxes.PlotBoxAspectRatio = [app.ct_info.Width/app.ct_info.Height, 1, 1];
             if app.ptu_true == 0
                 title(app.UIAxes2, 'PET')
-                app.CT_resized = imresize(app.ct_volume(:,:,corte),[app.pt_edges_pixel(2)-app.pt_edges_pixel(1)+1,app.pt_edges_pixel(4)-app.pt_edges_pixel(3)+1]);
+                app.CT_resized = imresize(app.ct_volume(:,:,corte),size(app.pt_volume(:,:,corte)));
                 maxSUV = max(max(app.SUV_pt(:,:,corte)));
                 if app.PETPETuButton.Value == 1
-                      imagesc(app.UIAxes2,app.pt_volume(:,:,corte),"HitTest","off",[0 65535]);colormap(app.UIAxes2,"jet");
+                      app.main_fig2 = imagesc(app.UIAxes2,app.pt_volume(:,:,corte),"HitTest","off",[0 65535]);colormap(app.UIAxes2,"jet");
                       PT = ind2rgb(app.pt_volume(:,:,corte), jet(2^16));
-                      c = colorbar(app.UIAxes3,'TickLabels',{'0',int2str(app.pt_info.LargestImagePixelValue/6),int2str(2*app.pt_info.LargestImagePixelValue/6),int2str(3*app.pt_info.LargestImagePixelValue/6),int2str(4*app.pt_info.LargestImagePixelValue/6),int2str(5*app.pt_info.LargestImagePixelValue/6),int2str(app.pt_info.LargestImagePixelValue)});
+                      c = colorbar(app.UIAxes3,'TickLabels',num2cell(linspace(0,2^16,9)));
                       colormap(app.UIAxes3,jet); 
                       c.Label.String = 'Intensidad de Píxel'; 
                       app.UIAxes3.FontSize = 10; 
                 elseif app.SUVButton.Value == 1
-                      imagesc(app.UIAxes2,app.SUV_pt(:,:,corte),"HitTest","off",[0 maxSUV]);colormap(app.UIAxes2,"jet");
+                      app.main_fig2 = imagesc(app.UIAxes2,app.SUV_pt(:,:,corte),"HitTest","off",[0 maxSUV]);colormap(app.UIAxes2,"jet");
                       PT = ind2rgb(uint8(256*app.SUV_pt(:,:,corte)/maxSUV), jet(256));
-                      c = colorbar(app.UIAxes3,'TickLabels',{'0',sprintf('%.3f',maxSUV/6),sprintf('%.3f',2*maxSUV/6),sprintf('%.3f',3*maxSUV/6),sprintf('%.3f',4*maxSUV/6),sprintf('%.3f',5*maxSUV/6),sprintf('%.3f',maxSUV)});
+                      c = colorbar(app.UIAxes3,'TickLabels',num2cell(linspace(0,maxSUV,9)));
                       colormap(app.UIAxes3,jet); 
                       c.Label.String = 'Valor SUV'; 
                       app.UIAxes3.FontSize = 10; 
                 elseif app.ROIButton.Value == 1
-                      imagesc(app.UIAxes2,app.roi_map,"HitTest","off",[0 maxSUV]);colormap(app.UIAxes2,"gray");
+                      app.main_fig2 = imagesc(app.UIAxes2,app.roi_map,"HitTest","off",[0 maxSUV]);colormap(app.UIAxes2,"gray");
                       PT = ind2rgb(uint8(256*app.SUV_pt(:,:,corte)/maxSUV), jet(256));
-                      c = colorbar(app.UIAxes3,'TickLabels',{'0',sprintf('%.3f',maxSUV/6),sprintf('%.3f',2*maxSUV/6),sprintf('%.3f',3*maxSUV/6),sprintf('%.3f',4*maxSUV/6),sprintf('%.3f',5*maxSUV/6),sprintf('%.3f',maxSUV)});
+                      c = colorbar(app.UIAxes3,'TickLabels',num2cell(linspace(0,maxSUV,9)));
                       colormap(app.UIAxes3,jet); 
                       c.Label.String = 'Valor SUV'; 
                       app.UIAxes3.FontSize = 10; 
                       
                 end
-                CT = ind2rgb(app.CT_resized-app.ct_info.WindowWidth(1), gray(1200-app.ct_info.WindowWidth(1)));
+                CT = ind2rgb(int64(app.CT_resized-(app.WL-app.WW/2)), gray(app.WW));
                 app.fused = CT*app.AlphaCTSlider.Value + PT*(app.AlphaPETSlider.Value);
                 app.fused = im2uint8(app.fused);
                 %%
@@ -280,18 +481,10 @@ classdef main2 < matlab.apps.AppBase
                 %
                 %%
                 if app.viewROI_true == 0
-                    imagesc(app.UIAxes3,app.fused,"HitTest","off",[app.ct_info.WindowWidth(1),app.ct_info.WindowWidth(2)]);
+                    app.main_fig3 = imagesc(app.UIAxes3,app.fused,"HitTest","off",[app.WL-app.WW/2,app.WL+app.WW/2]);
                 elseif app.viewROI_true == 1
-                    imagesc(app.UIAxes3,uint8(app.roi_map).*app.fused,"HitTest","off",[app.ct_info.WindowWidth(1),app.ct_info.WindowWidth(2)]);
+                    app.main_fig3 = imagesc(app.UIAxes3,uint8(app.roi_map).*app.fused,"HitTest","off",[app.WL-app.WW/2,app.WL+app.WW/2]);
                 end
-                
-                %
-                app.UIAxes2.PlotBoxAspectRatio = [app.pt_info.Width/app.pt_info.Height, 1, 1];
-                app.UIAxes2.XLim = [1, app.pt_edges_pixel(4)-app.pt_edges_pixel(3)+1];
-                app.UIAxes2.YLim = [1, app.pt_edges_pixel(2)-app.pt_edges_pixel(1)+1];
-                app.UIAxes3.XLim = [1, app.pt_edges_pixel(4)-app.pt_edges_pixel(3)+1];
-                app.UIAxes3.YLim = [1, app.pt_edges_pixel(2)-app.pt_edges_pixel(1)+1];
-
               
                 % tiempo char
                 d = minutes(app.pt_time(corte));d.Format = 'hh:mm:ss.SS';
@@ -304,69 +497,77 @@ classdef main2 < matlab.apps.AppBase
                 
             else
                 title(app.UIAxes2, 'PET sin corregir')
-                CT_resized_1 = imresize(app.ct_volume(:,:,corte),[app.pt_edges_pixel(2)-app.pt_edges_pixel(1)+1,app.pt_edges_pixel(4)-app.pt_edges_pixel(3)+1]);
+                CT_resized_1 = imresize(app.ct_volume(:,:,corte),size(app.ptu_volume(:,:,corte)));
                 maxSUV = max(max(app.SUV_pt(:,:,corte)));
                 if app.PETPETuButton.Value == 1
-                    imagesc(app.UIAxes2,app.ptu_volume(:,:,corte),"HitTest","off",[0 65535]);colormap(app.UIAxes2,"jet");                
+                    app.main_fig2 = imagesc(app.UIAxes2,app.ptu_volume(:,:,corte),"HitTest","off",[0 65535]);colormap(app.UIAxes2,"jet");                
                     PT = ind2rgb(app.ptu_volume(:,:,corte), jet(2^16));
-                    c = colorbar(app.UIAxes3,'TickLabels',{'0',int2str(app.pt_info.LargestImagePixelValue/6),int2str(2*app.pt_info.LargestImagePixelValue/6),int2str(3*app.pt_info.LargestImagePixelValue/6),int2str(4*app.pt_info.LargestImagePixelValue/6),int2str(5*app.pt_info.LargestImagePixelValue/6),int2str(app.pt_info.LargestImagePixelValue)});
+                    %c = colorbar(app.UIAxes3,'TickLabels',{'0',int2str(app.pt_info.LargestImagePixelValue/6),int2str(2*app.pt_info.LargestImagePixelValue/6),int2str(3*app.pt_info.LargestImagePixelValue/6),int2str(4*app.pt_info.LargestImagePixelValue/6),int2str(5*app.pt_info.LargestImagePixelValue/6),int2str(app.pt_info.LargestImagePixelValue)});
+                    c = colorbar(app.UIAxes3,'TickLabels',num2cell(linspace(0,2^16,9)));
                     colormap(app.UIAxes3,jet); 
                     c.Label.String = 'Intensidad de Píxel'; 
                     app.UIAxes3.FontSize = 10; 
                 elseif app.SUVButton.Value == 1
-                    imagesc(app.UIAxes2,app.SUV_ptu(:,:,corte),"HitTest","off",[0 maxSUV]);colormap(app.UIAxes2,"jet");                
+                    app.main_fig2 = imagesc(app.UIAxes2,app.SUV_ptu(:,:,corte),"HitTest","off",[0 maxSUV]);colormap(app.UIAxes2,"jet");                
                     PT = ind2rgb(uint8(256*app.SUV_ptu(:,:,corte)/maxSUV), jet(256));
-                    c = colorbar(app.UIAxes3,'TickLabels',{'0',sprintf('%.3f',maxSUV/6),sprintf('%.3f',2*maxSUV/6),sprintf('%.3f',3*maxSUV/6),sprintf('%.3f',4*maxSUV/6),sprintf('%.3f',5*maxSUV/6),sprintf('%.3f',maxSUV)});
+                    %c = colorbar(app.UIAxes3,'TickLabels',{'0',sprintf('%.3f',maxSUV/6),sprintf('%.3f',2*maxSUV/6),sprintf('%.3f',3*maxSUV/6),sprintf('%.3f',4*maxSUV/6),sprintf('%.3f',5*maxSUV/6),sprintf('%.3f',maxSUV)});
+                    c = colorbar(app.UIAxes3,'TickLabels',num2cell(linspace(0,maxSUV,9)));
                     colormap(app.UIAxes3,jet); 
                     c.Label.String = 'Valor SUV'; 
                     app.UIAxes3.FontSize = 10; 
                 elseif app.ROIButton.Value == 1
-                    imagesc(app.UIAxes2,app.roi_map,"HitTest","off",[0 maxSUV]);colormap(app.UIAxes2,"gray");
+                    app.main_fig2 = imagesc(app.UIAxes2,app.roi_map,"HitTest","off",[0 maxSUV]);colormap(app.UIAxes2,"gray");
                     PT = ind2rgb(uint8(256*app.SUV_ptu(:,:,corte)/maxSUV), jet(256));
-                    c = colorbar(app.UIAxes3,'TickLabels',{'0',sprintf('%.3f',maxSUV/6),sprintf('%.3f',2*maxSUV/6),sprintf('%.3f',3*maxSUV/6),sprintf('%.3f',4*maxSUV/6),sprintf('%.3f',5*maxSUV/6),sprintf('%.3f',maxSUV)});
+                    %c = colorbar(app.UIAxes3,'TickLabels',{'0',sprintf('%.3f',maxSUV/6),sprintf('%.3f',2*maxSUV/6),sprintf('%.3f',3*maxSUV/6),sprintf('%.3f',4*maxSUV/6),sprintf('%.3f',5*maxSUV/6),sprintf('%.3f',maxSUV)});
+                    c = colorbar(app.UIAxes3,'TickLabels',num2cell(linspace(0,maxSUV,9)));
                     colormap(app.UIAxes3,jet); 
                     c.Label.String = 'Valor SUV'; 
                     app.UIAxes3.FontSize = 10; 
                 end
-                CT = ind2rgb(CT_resized_1-app.ct_info.WindowWidth(1), gray(1200-app.ct_info.WindowWidth(1)));
-                
+                CT = ind2rgb(int64(CT_resized_1-(app.WL-app.WW/2)), gray(app.WW));
                 app.fused = CT*app.AlphaCTSlider.Value + PT*(app.AlphaPETSlider.Value);
                 app.fused = im2uint8(app.fused);
-                imagesc(app.UIAxes3,app.fused,"HitTest","off",[app.ct_info.WindowWidth(1),app.ct_info.WindowWidth(2)]);
+                %imagesc(app.UIAxes3,app.fused,"HitTest","off",[app.WL-app.WW/2,app.WL+app.WW/2]);
                 if app.viewROI_true == 0
-                    imagesc(app.UIAxes3,app.fused,"HitTest","off",[app.ct_info.WindowWidth(1),app.ct_info.WindowWidth(2)]);
+                    app.main_fig3 = imagesc(app.UIAxes3,app.fused,"HitTest","off",[app.WL-app.WW/2,app.WL+app.WW/2]);
                 elseif app.viewROI_true == 1
-                    imagesc(app.UIAxes3,uint8(app.roi_map).*app.fused,"HitTest","off",[app.ct_info.WindowWidth(1),app.ct_info.WindowWidth(2)]);
+                    app.main_fig3 = imagesc(app.UIAxes3,uint8(app.roi_map).*app.fused,"HitTest","off",[app.WL-app.WW/2,app.WL+app.WW/2]);
                 end
                 %
-                app.UIAxes2.PlotBoxAspectRatio = [app.ptu_info.Width/app.ptu_info.Height, 1, 1];
-                app.UIAxes2.XLim = [1, app.ptu_edges_pixel(4)-app.ptu_edges_pixel(3)+1];
-                app.UIAxes2.YLim = [1, app.ptu_edges_pixel(2)-app.ptu_edges_pixel(1)+1];
-                app.UIAxes3.XLim = [1, app.ptu_edges_pixel(4)-app.ptu_edges_pixel(3)+1];
-                app.UIAxes3.YLim = [1, app.ptu_edges_pixel(2)-app.ptu_edges_pixel(1)+1];
+                
                 % tiempo char
                 d = minutes(app.ptu_time(corte));d.Format = 'hh:mm:ss.SS';
                 app.DDMMAAAAalasHHMMSSLabel.Text = ['AcquisitionDateTime ',char(d)];
                 
                 
             end
-            app.UIAxes.XLim = [1, app.ct_info.Width];
-            app.UIAxes.YLim = [1, app.ct_info.Height];
+
+            %%
+            tam = size(CT);
+            app.UIAxes2.PlotBoxAspectRatio = [app.pt_info.Width/app.pt_info.Height, 1, 1];
+            app.UIAxes2.XLim = [1, tam(1)];
+            app.UIAxes2.YLim = [1, tam(2)];
+            app.UIAxes3.XLim = [1, tam(1)];
+            app.UIAxes3.YLim = [1, tam(2)];
+            %%
+            tam_1 = size(app.ct_volume(:,:,corte));
+            app.UIAxes.XLim = [1, tam_1(1)];
+            app.UIAxes.YLim = [1, tam_1(1)];
             app.UIAxes.YDir = 'reverse';
             app.UIAxes2.YDir = 'reverse';
             app.UIAxes3.YDir = 'reverse';
             y=app.topogram_index(corte);
+            %y
             delete(app.tp_line)
-            app.tp_line=yline(app.UIAxes4, y,'Color',[0,128/255,128/255],'linewidth',1);
+
+            app.tp_line=yline(app.UIAxes4, y,'Color','y','linewidth',1);
             rule_new_fig(app)
-            
             if app.roi_activated %&& not(app.ptu_true)
                 ROI_fig_SUV_CT(app)
             end
             %%
-            
-            
         end
+
         function [] = lines_and_info(app,corte)
             corte =  round(corte);
             app.XXXYYYLabel.Text = ['(',int2str(app.pt_crosshair_x),',',int2str(app.pt_crosshair_y),')'];
@@ -452,7 +653,11 @@ classdef main2 < matlab.apps.AppBase
                         h = abs(app.PT_xy_p2(2)-app.PT_xy_p1(2));
                         app.roi_fig = rectangle(app.UIAxes3,'Position',[x y w h],'EdgeColor','y');
                     elseif app.CircularButton.Value == 1
-                        app.roi_fig = viscircles(app.UIAxes3,app.PT_xy_p1,norm(app.PT_xy_p2-app.PT_xy_p1),'Color','y');
+                        c = app.PT_xy_p1;
+                        r = norm(app.PT_xy_p2-app.PT_xy_p1);
+                        pos = [c-r 2*r 2*r];
+                        app.roi_fig = rectangle(app.UIAxes3,'Position',pos,'Curvature',[1 1],'EdgeColor','y');
+                        %app.roi_fig = viscircles(app.UIAxes3,app.PT_xy_p1,norm(app.PT_xy_p2-app.PT_xy_p1),'Color','y');
                     end
                 end
             end
@@ -536,6 +741,40 @@ classdef main2 < matlab.apps.AppBase
             app.SeleccindeROIButtonGroup.Enable = "on";
             app.VisualizacinButtonGroup.Enable = "on";
             app.GuardarButton.Enable = on_off;
+            app.WindowLevelEditField.Enable = on_off;
+            app.WindowWidthEditField.Enable = on_off;
+            app.WindowLevelEditFieldLabel.Enable = on_off;
+            app.WindowWidthEditFieldLabel.Enable = on_off;
+            app.flipvolButton.Enable = on_off;
+            %% nuevos componentes
+            app.Button.Enable = on_off;
+            app.Button_2.Enable = on_off;
+            app.Button_3.Enable = on_off;
+            app.Button_4.Enable = on_off;
+            app.Button_5.Enable = on_off;
+            app.Button_6.Enable = on_off;
+            app.FWHMButtonGroup.Enable = on_off;
+            app.RadioEditField.Enable = on_off;
+            app.RadiocmEditField.Enable = on_off;
+            app.UmbralEditField.Enable = on_off;
+            app.IniciarButton.Enable = on_off;
+            app.nCorteEditField.Enable = on_off;
+        end
+        
+        
+        
+        function [] = on_off_all(app,on_off)
+            set(findobj(app.PositroniumdotMATMododetomografaUIFigure,'Type','uibutton'),'Enable',on_off)
+            set(findobj(app.PositroniumdotMATMododetomografaUIFigure,'Type','uicheckbox'),'Enable',on_off)
+            set(findobj(app.PositroniumdotMATMododetomografaUIFigure,'Type','uiradiobutton'),'Enable',on_off)
+            set(findobj(app.PositroniumdotMATMododetomografaUIFigure,'Type','uieditfield'),'Enable',on_off)
+            set(findobj(app.PositroniumdotMATMododetomografaUIFigure,'Type','uiaxes'),'Enable',on_off)
+            set(findobj(app.PositroniumdotMATMododetomografaUIFigure,'Type','uislider'),'Enable',on_off)
+            %uicheckbox
+            %uiradiobutton
+            %uieditfield uieditfield
+            %uiaxes
+            %uislider
         end
     end
     
@@ -554,9 +793,9 @@ classdef main2 < matlab.apps.AppBase
                     app.outputTextArea.Value =  app.output;
                     app.CorrerButton.Enable = "off";
                 else
-                    ct_dir = fullfile(app.mod2DIR,'SE000001','*CT*');
-                    pt_dir = fullfile(app.mod2DIR,'SE000003','*PT*');
-                    ptu_dir =fullfile(app.mod2DIR,'SE000004','*PT*');
+                    ct_dir = fullfile(app.mod2DIR,app.CTDIR,'*CT*');
+                    pt_dir = fullfile(app.mod2DIR,app.PTDIR,'*PT*');
+                    ptu_dir =fullfile(app.mod2DIR,app.PTUDIR,'*PT*');
                     if isempty(dir(ct_dir)) || isempty(dir(pt_dir)) || isempty(dir(ptu_dir))
                         app.output = "[X] Algún directorio DICOM está vacío o no contiene archivos con los patrones CT y/o PT en sus nombres.";
                         app.outputTextArea.Value =  app.output;
@@ -590,46 +829,99 @@ classdef main2 < matlab.apps.AppBase
 
             if app.running
                 app.running = not(app.running);
-                app.CorrerButton.Enable = "off"; drawnow limitrate
-                pause(0.5)
+                pause(0.1)
+                app.CorrerButton.Enable = "off";
+                app.CerrarButton.Enable = "off";
+                app.outputTextArea.Value = app.output;
+                drawnow('limitrate')
+                pause(0.2)
                 app.output = "Cargando imágenes...."+newline+app.output; 
-                app.outputTextArea.Value =  app.output; drawnow limitrate
-                [app.ct_volume,app.ct_info,loc_vector,app.ct_time,~]  = load_dicom_data(app,app.mod2DIR,'SE000001','*CT*',app.cortes,0);
+                app.outputTextArea.Value =  app.output;
+                drawnow('limitrate')
+                [app.ct_volume,app.ct_info,loc_vector,app.ct_time,~]  = load_dicom_data(app,app.mod2DIR,app.CTDIR,'*CT*',app.cortes,0);
+                pause(0.2)
                 app.output = "[OK] Imágenes CT cargadas correctamente."+newline+app.output;
-                app.outputTextArea.Value =  app.output; drawnow limitrate
-                [app.pt_volume,app.pt_info,~,app.pt_time,pt_RescaleSlope]  = load_dicom_data(app,app.mod2DIR,'SE000003','*PT*',app.cortes,1);
+                app.outputTextArea.Value =  app.output;
+                drawnow('limitrate')
+                [app.pt_volume,app.pt_info,~,app.pt_time,pt_RescaleSlope]  = load_dicom_data(app,app.mod2DIR,app.PTDIR,'*PT*',app.cortes,1);
+                pause(0.2)
                 app.output = "[OK] Imágenes PET cargadas correctamente."+newline+app.output;
-                app.outputTextArea.Value =  app.output; drawnow limitrate
-                [app.ptu_volume,app.ptu_info,~,app.ptu_time,ptu_RescaleSlope]  = load_dicom_data(app,app.mod2DIR,'SE000004','*PT*',app.cortes,1);
+                app.outputTextArea.Value =  app.output;
+                drawnow('limitrate')
+                [app.ptu_volume,app.ptu_info,~,app.ptu_time,ptu_RescaleSlope]  = load_dicom_data(app,app.mod2DIR,app.PTUDIR,'*PT*',app.cortes,1);
+                pause(0.2)
                 app.output = "[OK] Imágenes PET sin corregir cargadas correctamente."+newline+app.output;
-                app.outputTextArea.Value =  app.output; drawnow limitrate
+                app.outputTextArea.Value =  app.output; 
+                drawnow('limitrate')
                 
-    
-                ct_edges = [app.ct_info.ImagePositionPatient(1),2*app.ct_info.ReconstructionTargetCenterPatient(1)-app.ct_info.ImagePositionPatient(1),...
-                    app.ct_info.ImagePositionPatient(2),2*app.ct_info.ReconstructionTargetCenterPatient(2)-app.ct_info.ImagePositionPatient(2)];
-                app.pt_edges_pixel = round([(ct_edges(3)-app.pt_info.ImagePositionPatient(2))/app.pt_info.PixelSpacing(2),(ct_edges(4)-app.pt_info.ImagePositionPatient(2))/app.pt_info.PixelSpacing(2)...
-                    (ct_edges(1)-app.pt_info.ImagePositionPatient(1))/app.pt_info.PixelSpacing(1),(ct_edges(2)-app.pt_info.ImagePositionPatient(1))/app.pt_info.PixelSpacing(1)]+1);
-                app.ptu_edges_pixel = round([(ct_edges(3)-app.ptu_info.ImagePositionPatient(2))/app.ptu_info.PixelSpacing(2),(ct_edges(4)-app.ptu_info.ImagePositionPatient(2))/app.ptu_info.PixelSpacing(2)...
-                    (ct_edges(1)-app.ptu_info.ImagePositionPatient(1))/app.ptu_info.PixelSpacing(1),(ct_edges(2)-app.ptu_info.ImagePositionPatient(1))/app.ptu_info.PixelSpacing(1)]+1);
-                
-                app.ct_info.WindowWidth(1) = 900;
-                
-                app.SUV_pt = SUVolume(app, app.pt_volume(app.pt_edges_pixel(1):app.pt_edges_pixel(2),app.pt_edges_pixel(3):app.pt_edges_pixel(4),:), ...
-                    app.pt_info,pt_RescaleSlope,app.pt_time,app.cortes);
-                app.output = "[OK] SUV calculado correctamente."+newline+app.output;
-                app.outputTextArea.Value =  app.output; drawnow limitrate
-                app.SUV_ptu = SUVolume(app, app.ptu_volume(app.ptu_edges_pixel(1):app.ptu_edges_pixel(2),app.ptu_edges_pixel(3):app.ptu_edges_pixel(4),:), ...
-                    app.ptu_info,ptu_RescaleSlope,app.ptu_time,app.cortes);
-                app.output = "[OK] SUV sin corregir calculado correctamente."+newline+app.output;
-                app.outputTextArea.Value =  app.output; drawnow limitrate
                 %%
-                app.pt_volume = app.pt_volume(app.pt_edges_pixel(1):app.pt_edges_pixel(2),app.pt_edges_pixel(3):app.pt_edges_pixel(4),:);
-                app.ptu_volume = app.ptu_volume(app.ptu_edges_pixel(1):app.ptu_edges_pixel(2),app.ptu_edges_pixel(3):app.ptu_edges_pixel(4),:);
+                if app.ct_info.PixelSpacing(1)*app.ct_info.Height > app.pt_info.PixelSpacing(1)*app.pt_info.Height
+                    % cuando la imagen CT es mayor espacialmente que la img PET
+                    % app.ct_info.ReconstructionTargetCenterPatient(1) > app.ct_info.ImagePositionPatient(1)
+                    ct_edges_p1 = [app.pt_info.ImagePositionPatient(1),app.pt_info.ImagePositionPatient(2)];
+                    ct_edges_p2 = [2*app.ct_info.ReconstructionTargetCenterPatient(1)-app.pt_info.ImagePositionPatient(1),2*app.ct_info.ReconstructionTargetCenterPatient(2)-app.pt_info.ImagePositionPatient(2)];
+                    %
+                    app.pt_edges_pixel = round([(ct_edges_p1(2)-app.ct_info.ImagePositionPatient(2))/app.ct_info.PixelSpacing(2),(ct_edges_p2(2)-app.ct_info.ImagePositionPatient(2))/app.ct_info.PixelSpacing(2)...
+                        (ct_edges_p1(1)-app.ct_info.ImagePositionPatient(1))/app.ct_info.PixelSpacing(1),(ct_edges_p2(1)-app.ct_info.ImagePositionPatient(1))/app.ct_info.PixelSpacing(1)]+1);
+                    %
+                    app.ptu_edges_pixel = app.pt_edges_pixel;
+                    app.ct_edges_on = 1;
+                else
+                    if app.ct_info.ReconstructionTargetCenterPatient(1) > app.ct_info.ImagePositionPatient(1)
+                        ct_edges_p1 = [app.ct_info.ImagePositionPatient(1),app.ct_info.ImagePositionPatient(2)];
+                        ct_edges_p2 = [2*app.ct_info.ReconstructionTargetCenterPatient(1)-app.ct_info.ImagePositionPatient(1),2*app.ct_info.ReconstructionTargetCenterPatient(2)-app.ct_info.ImagePositionPatient(2)];
+                        %
+                        app.pt_edges_pixel = round([(ct_edges_p1(2)-app.pt_info.ImagePositionPatient(2))/app.pt_info.PixelSpacing(2),(ct_edges_p2(2)-app.pt_info.ImagePositionPatient(2))/app.pt_info.PixelSpacing(2)...
+                            (ct_edges_p1(1)-app.pt_info.ImagePositionPatient(1))/app.pt_info.PixelSpacing(1),(ct_edges_p2(1)-app.pt_info.ImagePositionPatient(1))/app.pt_info.PixelSpacing(1)]+1);
+                        %
+                        app.ptu_edges_pixel = app.pt_edges_pixel;
+                    else
+                        ct_edges_p1 = [app.ct_info.ImagePositionPatient(1),app.ct_info.ImagePositionPatient(2)];
+                        ct_edges_p2 = [2*app.ct_info.ReconstructionTargetCenterPatient(1)-app.ct_info.ImagePositionPatient(1),2*app.ct_info.ReconstructionTargetCenterPatient(2)-app.ct_info.ImagePositionPatient(2)];
+                        app.pt_edges_pixel = round([(-ct_edges_p2(2)+app.pt_info.ImagePositionPatient(2))/app.pt_info.PixelSpacing(2),(-ct_edges_p1(2)+app.pt_info.ImagePositionPatient(2))/app.pt_info.PixelSpacing(2)...
+                            (-ct_edges_p1(1)+app.pt_info.ImagePositionPatient(1))/app.pt_info.PixelSpacing(1),(-ct_edges_p2(1)+app.pt_info.ImagePositionPatient(1))/app.pt_info.PixelSpacing(1)]+1);
+                        app.ptu_edges_pixel = app.pt_edges_pixel;
+                    end
+                end
+                
+
+                %%
+                app.WW=app.ct_info.WindowWidth(1);
+                app.WL=app.ct_info.WindowCenter(1);
+                app.WindowLevelEditField.Value = app.WL;
+                app.WindowWidthEditField.Value = app.WW;
+                
+                if not(app.ct_edges_on)
+                    app.pt_volume = app.pt_volume(app.pt_edges_pixel(1):app.pt_edges_pixel(2),app.pt_edges_pixel(3):app.pt_edges_pixel(4),:);
+                    app.ptu_volume = app.ptu_volume(app.ptu_edges_pixel(1):app.ptu_edges_pixel(2),app.ptu_edges_pixel(3):app.ptu_edges_pixel(4),:);
+                else
+                    pause(0.2)
+                    app.output = "[!] Volumen CT corregido"+newline+app.output;
+                    app.outputTextArea.Value =  app.output;
+                    drawnow('limitrate')
+                    app.ct_volume = app.ct_volume(app.pt_edges_pixel(1):app.pt_edges_pixel(2),app.pt_edges_pixel(3):app.pt_edges_pixel(4),:);
+                end
+                app.SUV_pt = SUVolume(app, app.pt_volume, app.pt_info,pt_RescaleSlope,app.pt_time,app.cortes);
+                pause(0.2)
+                app.output = "[OK] SUV calculado correctamente."+newline+app.output;
+                app.outputTextArea.Value =  app.output;
+                drawnow('limitrate')
+                app.SUV_ptu = SUVolume(app, app.ptu_volume, app.ptu_info,ptu_RescaleSlope,app.ptu_time,app.cortes);
+                pause(0.2)
+                app.output = "[OK] SUV sin corregir calculado correctamente."+newline+app.output;
+                app.outputTextArea.Value =  app.output;  
+                drawnow('limitrate')
+                %%
+                
+                pause(0.2)
                 app.output = "[OK] Datos PET/PETu cortados correctamente."+newline+app.output;
                 %%
-                app.outputTextArea.Value =  app.output; drawnow limitrate
+                app.outputTextArea.Value =  app.output;
+                drawnow('limitrate')
                 [loc_slice,pixel_spacing,~,~] = get_topograma(app,app.mod2DIR,'SE000000',app.UIAxes4);
+                %% indices de posicion del topograma
                 app.topogram_index = round((loc_slice-loc_vector)/pixel_spacing(1));
+
                 %%
                 app.pt_crosshair_x = round((app.ptu_edges_pixel(2)-app.ptu_edges_pixel(1)+1)/2);
                 app.pt_crosshair_y = round((app.ptu_edges_pixel(4)-app.ptu_edges_pixel(3)+1)/2);
@@ -645,25 +937,16 @@ classdef main2 < matlab.apps.AppBase
                 %% 
                 app.CorrerButton.Text = 'Regresar';
                 app.CorrerButton.Icon =  fullfile(fileparts(mfilename('fullpath')), 'ico', 'positronium_ico_medium.png');
-                app.CorrerButton.Enable = "on"; drawnow limitrate
-                pause(0.5)
+                app.CorrerButton.Enable = "on";
+                app.CerrarButton.Enable = "on";
+                %%
+                app.nCorteEditField.Limits = [1, app.cortes];
             else
                 main0
                 app.delete;
             end
             %%
             
-            
-           
-            
-            
-
-            
-            
-            
-
-
-
         end
 
         % Window scroll wheel function: 
@@ -675,9 +958,12 @@ classdef main2 < matlab.apps.AppBase
                 posicion = verticalScrollCount + app.CorteSlider.Value;
                 if posicion<1
                     app.CorteSlider.Value = 1;
+                    app.nCorteEditField.Value = 1;
                 elseif posicion>app.cortes
                     app.CorteSlider.Value = app.cortes;
+                    app.nCorteEditField.Value = app.cortes;
                 else
+                    app.nCorteEditField.Value = posicion;
                     app.CorteSlider.Value = posicion;
                 end
                 app.cambiar_x_y = false;
@@ -690,6 +976,16 @@ classdef main2 < matlab.apps.AppBase
         % Value changed function: CorteSlider
         function CorteSliderValueChanged(app, event)
             app.CorteSlider.Value = round(app.CorteSlider.Value);
+            app.nCorteEditField.Value = app.CorteSlider.Value;
+            app.cambiar_x_y = false;
+            draw_figs(app,app.CorteSlider.Value,1,1)
+            lines_and_info(app,app.CorteSlider.Value)
+        end
+
+        % Value changed function: nCorteEditField
+        function nCorteEditFieldValueChanged(app, event)
+            app.nCorteEditField.Value = round(app.nCorteEditField.Value);
+            app.CorteSlider.Value = app.nCorteEditField.Value;
             %app.app.CorteSlider.Value = round(value);
             app.cambiar_x_y = false;
             draw_figs(app,app.CorteSlider.Value,1,1)
@@ -724,22 +1020,6 @@ classdef main2 < matlab.apps.AppBase
                 app.SeleccindeROIButtonGroup.Enable = "on";
                 app.VerROICheckBox.Enable = "on";
                 app.NingunaButton.Value = 1;
-                %app.FX1FY1Label.Visible = "off";
-                %app.FX2FY2Label.Visible = "off";
-                %app.SUVMEANLabel.Visible = "off";
-                %app.SUVMAXLabel.Visible = "off";
-                %app.roi_map = ones(size(app.pt_volume(:,:,1)),'logical');
-                %delete([app.PT_p1,app.PT_p2,app.roi_fig])
-                %app.ROIlowEditField.Enable ="off";
-                %app.ROIhightEditField.Enable = "off";
-                %app.OpmofolgicaDropDown.Enable = "off";
-                %app.OpmofolgicaDropDown.Value = 1;
-                %app.RadiomorfEditField.Enable = "off";
-                %app.ErosionarButton.Enable = "off";
-                %app.DilatarButton.Enable = "off";
-                %%
-               
-
             end
             draw_figs(app,app.CorteSlider.Value,1,1)
             lines_and_info(app,app.CorteSlider.Value)
@@ -847,8 +1127,8 @@ classdef main2 < matlab.apps.AppBase
             delete([app.PT_p1,app.PT_p2,app.roi_fig])
 
             if app.SegmentadoCTButton.Value == 1
-                app.ROIlowEditField.Value = app.ct_info.WindowWidth(1);
-                app.ROIhightEditField.Value = app.ct_info.WindowWidth(2);
+                app.ROIlowEditField.Value = -20;
+                app.ROIhightEditField.Value = 20;
                 app.roi_map = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
             elseif app.SegmentadoPETButton.Value == 1
                 app.ROIlowEditField.Value = round(0.8*double(app.pt_info.LargestImagePixelValue));
@@ -889,8 +1169,8 @@ classdef main2 < matlab.apps.AppBase
         function ResetsegmentacinButtonPushed(app, event)
             app.roi_map = ones(size(app.pt_volume(:,:,1)),'logical');
             if app.SegmentadoCTButton.Value == 1
-                app.ROIlowEditField.Value = app.ct_info.WindowWidth(1);
-                app.ROIhightEditField.Value = app.ct_info.WindowWidth(2);
+                app.ROIlowEditField.Value = -20;
+                app.ROIhightEditField.Value = 20;
                 app.roi_map = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
            elseif app.SegmentadoPETButton.Value == 1
                 app.ROIlowEditField.Value = round(0.8*double(app.pt_info.LargestImagePixelValue));
@@ -984,9 +1264,413 @@ classdef main2 < matlab.apps.AppBase
             app.GuardarButton.Enable = "on";
         end
 
+        % Value changed function: WindowLevelEditField
+        function WindowLevelEditFieldValueChanged(app, event)
+            app.WL = round(app.WindowLevelEditField.Value);
+            app.WindowLevelEditField.Value = round(app.WindowLevelEditField.Value);
+            draw_figs(app,app.CorteSlider.Value,1,1)
+            
+        end
+
+        % Value changed function: WindowWidthEditField
+        function WindowWidthEditFieldValueChanged(app, event)
+            app.WW = round(app.WindowWidthEditField.Value);
+            app.WindowWidthEditField.Value = round(app.WindowWidthEditField.Value);
+            draw_figs(app,app.CorteSlider.Value,1,1)
+        end
+
         % Button pushed function: CerrarButton
         function CerrarButtonPushed(app, event)
             app.delete;
+        end
+
+        % Selection changed function: FWHMButtonGroup
+        function FWHMButtonGroupSelectionChanged(app, event)
+            %selectedButton = app.FWHMButtonGroup.SelectedObject;
+            app.CorteSlider.Value = round(app.CorteSlider.Value);
+            %app.app.CorteSlider.Value = round(value);
+            app.cambiar_x_y = false;
+            draw_figs(app,app.CorteSlider.Value,1,1)
+            lines_and_info(app,app.CorteSlider.Value)
+        end
+
+        % Button pushed function: IniciarButton
+        function IniciarButtonPushed(app, event)
+            on_off_all(app,'off')
+            pause(0.8)
+            drawnow('limitrate')
+            if app.fwhm_points_activated
+                delete([app.fwhm_max_point,app.fwhm_points])
+            end
+            %%
+            pause(0.5)
+            app.output = "Calculando FWHM." +newline+app.output;
+            app.outputTextArea.Value = app.output;
+            drawnow('limitrate')
+            
+            if app.PuntualCheckBox.Value
+                %%
+                % localizamos los valores máximos FWHM
+                x = app.pt_crosshair_x;
+                y = app.pt_crosshair_y;
+                z = app.CorteSlider.Value;
+                %ancho = app.ptu_edges_pixel(2)-app.ptu_edges_pixel(1)+1;
+                %altura = app.ptu_edges_pixel(4)-app.ptu_edges_pixel(3)+1;
+                tam = size(app.SUV_pt);
+                vec_z = ((0:tam(3)-1)-z)*app.ct_info.SliceThickness/10;
+                vec_x = ((0:tam(2)-1)-x)*app.pt_info.PixelSpacing(1)/10;
+                vec_y = ((0:tam(1)-1)-y)*app.pt_info.PixelSpacing(2)/10;
+                [~,closestIndex_z_left]  = min(abs(vec_z+app.RadiocmEditField.Value));
+                [~,closestIndex_z_right] = min(abs(vec_z-app.RadiocmEditField.Value));
+                [~,closestIndex_x_left]  = min(abs(vec_x+app.RadiocmEditField.Value));
+                [~,closestIndex_x_right] = min(abs(vec_x-app.RadiocmEditField.Value));
+                [~,closestIndex_y_left]  = min(abs(vec_y+app.RadiocmEditField.Value));
+                [~,closestIndex_y_right] = min(abs(vec_y-app.RadiocmEditField.Value));
+    
+                [~,maxFWHM_loc_z] = findpeaks(app.fwhm_vec_z(closestIndex_z_left:closestIndex_z_right),1:length(vec_z(closestIndex_z_left:closestIndex_z_right)), 'MinPeakHeight',app.UmbralEditField.Value, 'MinPeakDistance',app.RadiocmEditField.Value);
+                [~,maxFWHM_loc_x] = findpeaks(app.fwhm_vec_x(closestIndex_x_left:closestIndex_x_right),1:length(vec_x(closestIndex_x_left:closestIndex_x_right)), 'MinPeakHeight',app.UmbralEditField.Value, 'MinPeakDistance',app.RadiocmEditField.Value);
+                [~,maxFWHM_loc_y] = findpeaks(app.fwhm_vec_y(closestIndex_y_left:closestIndex_y_right),1:length(vec_y(closestIndex_y_left:closestIndex_y_right)), 'MinPeakHeight',app.UmbralEditField.Value, 'MinPeakDistance',app.RadiocmEditField.Value);
+                FMWH = 50/100;            
+                if not(isempty(maxFWHM_loc_z))&& not(isempty(maxFWHM_loc_x)) && not(isempty(maxFWHM_loc_y))
+                    loc_z = maxFWHM_loc_z+closestIndex_z_left-1;
+                    loc_x = maxFWHM_loc_x+closestIndex_x_left-1;
+                    loc_y = maxFWHM_loc_y+closestIndex_y_left-1;
+                    %
+                    pause(0.5)
+                    app.output = "FWHM locs z: "+convertCharsToStrings(int2str(loc_z))+newline+app.output; 
+                    app.outputTextArea.Value = app.output;
+                    app.output = "FWHM locs x: "+convertCharsToStrings(int2str(loc_x))+newline+app.output; 
+                    app.outputTextArea.Value = app.output;
+                    app.output = "FWHM locs y: "+convertCharsToStrings(int2str(loc_y))+newline+app.output; 
+                    app.outputTextArea.Value = app.output;
+                    drawnow('limitrate')
+                    %
+                    if length(maxFWHM_loc_z) > 1 || length(maxFWHM_loc_x) > 1 || length(maxFWHM_loc_y) > 1
+                        pause(0.2)
+                        app.output = "[X] FWHM locs excede más de 1 elemento." +newline+app.output;
+                        app.outputTextArea.Value = app.output;
+                        drawnow('limitrate')
+                        app.fwhm_points_activated = false;
+                    else 
+                        index_left1_right2_z = zeros(2,1);
+                        index_left1_right2_x = zeros(2,1);
+                        index_left1_right2_y = zeros(2,1);
+                        %
+                        halfMaxValue_z = app.fwhm_vec_z(loc_z)*FMWH;
+                        index_left1_right2_z(1) = find(app.fwhm_vec_z(closestIndex_z_left:closestIndex_z_right) >= halfMaxValue_z, 1, 'first');
+                        index_left1_right2_z(2) = find(app.fwhm_vec_z(closestIndex_z_left:closestIndex_z_right) >= halfMaxValue_z, 1, 'last');
+                        index_left1_right2_z = index_left1_right2_z + closestIndex_z_left - 1;
+                        %
+                        halfMaxValue_x = app.fwhm_vec_x(loc_x)*FMWH;
+                        index_left1_right2_x(1) = find(app.fwhm_vec_x(closestIndex_x_left:closestIndex_x_right) >= halfMaxValue_x, 1, 'first');
+                        index_left1_right2_x(2) = find(app.fwhm_vec_x(closestIndex_x_left:closestIndex_x_right) >= halfMaxValue_x, 1, 'last');
+                        index_left1_right2_x = index_left1_right2_x + closestIndex_x_left - 1;
+                        %
+                        halfMaxValue_y = app.fwhm_vec_y(loc_y)*FMWH;
+                        index_left1_right2_y(1) = find(app.fwhm_vec_y(closestIndex_y_left:closestIndex_y_right) >= halfMaxValue_y, 1, 'first');
+                        index_left1_right2_y(2) = find(app.fwhm_vec_y(closestIndex_y_left:closestIndex_y_right) >= halfMaxValue_y, 1, 'last');
+                        index_left1_right2_y = index_left1_right2_y + closestIndex_y_left - 1;
+                        %
+                        d_z = vec_z(index_left1_right2_z(2))-vec_z(index_left1_right2_z(1));
+                        d_x = vec_x(index_left1_right2_x(2))-vec_x(index_left1_right2_x(1));
+                        d_y = vec_y(index_left1_right2_y(2))-vec_y(index_left1_right2_y(1));
+                        pause(0.5)
+                        app.output = "FWHM z: "+convertCharsToStrings(num2str(d_z))+"cm"+newline+app.output; 
+                        app.outputTextArea.Value = app.output;
+                        app.output = "FWHM x: "+convertCharsToStrings(num2str(d_x))+"cm"+newline+app.output; 
+                        app.outputTextArea.Value = app.output;
+                        app.output = "FWHM y: "+convertCharsToStrings(num2str(d_y))+"cm"+newline+app.output; 
+                        app.outputTextArea.Value = app.output;
+                        pause(1)
+                        app.output = "[OK] Tarea terminada."+newline+app.output; 
+                        app.outputTextArea.Value = app.output;
+                        drawnow('limitrate')
+                        %
+                        app.fwhm_max_point(1) = scatter(app.UIAxes5,vec_z(loc_z),app.fwhm_vec_z(loc_z),"Color",'b');
+                        app.fwhm_max_point(2) = scatter(app.UIAxes5,vec_x(loc_x),app.fwhm_vec_x(loc_x),"Color",'g');
+                        app.fwhm_max_point(3) = scatter(app.UIAxes5,vec_y(loc_y),app.fwhm_vec_y(loc_y),"Color",'r');
+                        %
+                        app.fwhm_points(1) = scatter(app.UIAxes5,vec_z(index_left1_right2_z),app.fwhm_vec_z(index_left1_right2_z),"Color",'b');
+                        app.fwhm_points(2) = scatter(app.UIAxes5,vec_x(index_left1_right2_x),app.fwhm_vec_x(index_left1_right2_x),"Color",'g');
+                        app.fwhm_points(3) = scatter(app.UIAxes5,vec_y(index_left1_right2_y),app.fwhm_vec_y(index_left1_right2_y),"Color",'r');
+                        app.fwhm_points_activated = true;
+                    end
+                else
+                    pause(0.2)
+                    app.output = "[X] No fue posible realizar el cálculo. Vector vacío." +newline+app.output;
+                    app.outputTextArea.Value = app.output;
+                    drawnow('limitrate')
+                    app.fwhm_points_activated = false;
+                end
+            elseif app.NumricoCheckBox.Value
+                if length(app.fwhm_vec_z)>=5 && length(app.fwhm_vec_x)>=5 && length(app.fwhm_vec_y)>=5
+                    x = app.pt_crosshair_x;
+                    y = app.pt_crosshair_y;
+                    z = app.CorteSlider.Value;
+                    %ancho = app.ptu_edges_pixel(2)-app.ptu_edges_pixel(1)+1;
+                    %altura = app.ptu_edges_pixel(4)-app.ptu_edges_pixel(3)+1;
+                    tam = size(app.SUV_pt);
+                    vec_z = ((0:tam(3)-1)-z)*app.ct_info.SliceThickness/10;
+                    vec_x = ((0:tam(2)-1)-x)*app.pt_info.PixelSpacing(1)/10;
+                    vec_y = ((0:tam(1)-1)-y)*app.pt_info.PixelSpacing(2)/10;
+                    [~,closestIndex_z_left]  = min(abs(vec_z+app.RadiocmEditField.Value));
+                    [~,closestIndex_z_right] = min(abs(vec_z-app.RadiocmEditField.Value));
+                    [~,closestIndex_x_left]  = min(abs(vec_x+app.RadiocmEditField.Value));
+                    [~,closestIndex_x_right] = min(abs(vec_x-app.RadiocmEditField.Value));
+                    [~,closestIndex_y_left]  = min(abs(vec_y+app.RadiocmEditField.Value));
+                    [~,closestIndex_y_right] = min(abs(vec_y-app.RadiocmEditField.Value));
+                    %modelo_ajuste = "a + (b-a)*exp(-log(2)*(power(4*(x-c)*(x-c)/(d*d),e)))";
+                    modelo_ajuste = "a + (b-a)*exp(-(x-c)*(x-c)/(2*d*d))";
+                    %x_data_Z = vec_z(closestIndex_z_left:closestIndex_z_right)';
+                    %x_data_X = vec_x(closestIndex_x_left:closestIndex_x_right)';
+                    %x_data_Y = vec_y(closestIndex_y_left:closestIndex_y_right)';
+                    x_data_Z = ((1:length(vec_z(closestIndex_z_left:closestIndex_z_right)))'-1);
+                    x_data_X = ((1:length(vec_x(closestIndex_x_left:closestIndex_x_right)))'-1);
+                    x_data_Y = ((1:length(vec_y(closestIndex_y_left:closestIndex_y_right)))'-1);
+                    
+                    y_data_Z = app.fwhm_vec_z(closestIndex_z_left:closestIndex_z_right)';
+                    y_data_X = app.fwhm_vec_x(closestIndex_x_left:closestIndex_x_right)';
+                    y_data_Y = app.fwhm_vec_y(closestIndex_y_left:closestIndex_y_right)';
+                    %StartPoints_z = [min(y_data_Z) max(y_data_Z) length(y_data_Z)/2 sqrt(std(y_data_Z/mean(y_data_Z))) 2];
+                    %StartPoints_x = [min(y_data_X) max(y_data_X) length(y_data_X)/2 sqrt(std(y_data_X/mean(y_data_X))) 2];
+                    %StartPoints_y = [min(y_data_Y) max(y_data_Y) length(y_data_Y)/2 sqrt(std(y_data_Y/mean(y_data_Y))) 2];
+                    StartPoints_z = [min(y_data_Z) max(y_data_Z) length(y_data_Z)/2 sqrt(std(y_data_Z/mean(y_data_Z)))];
+                    StartPoints_x = [min(y_data_X) max(y_data_X) length(y_data_X)/2 sqrt(std(y_data_X/mean(y_data_X)))];
+                    StartPoints_y = [min(y_data_Y) max(y_data_Y) length(y_data_Y)/2 sqrt(std(y_data_Y/mean(y_data_Y)))];
+                    f_z = fit(x_data_Z,y_data_Z,modelo_ajuste,"StartPoint",StartPoints_z,'Normalize','off');
+                    f_x = fit(x_data_X,y_data_X,modelo_ajuste,"StartPoint",StartPoints_x,'Normalize','off');
+                    f_y = fit(x_data_Y,y_data_Y,modelo_ajuste,"StartPoint",StartPoints_y,'Normalize','off');
+                    %% eliminamos algunos elementos gráficos
+                    delete(app.axial_plot)
+                    num_ponints = 1000;
+                    linsZ = linspace(vec_z(closestIndex_z_left),vec_z(closestIndex_z_right),num_ponints);
+                    linsX = linspace(vec_x(closestIndex_x_left),vec_x(closestIndex_x_right),num_ponints);
+                    linsY = linspace(vec_y(closestIndex_y_left),vec_y(closestIndex_y_right),num_ponints);
+                    app.axial_plot(1) = plot(app.UIAxes5,linsZ,f_z(linspace(x_data_Z(1),x_data_Z(end),num_ponints)),'Color','b');
+                    app.axial_plot(2) = plot(app.UIAxes5,linsX,f_x(linspace(x_data_X(1),x_data_X(end),num_ponints)),'Color','g');
+                    app.axial_plot(3) = plot(app.UIAxes5,linsY,f_y(linspace(x_data_Y(1),x_data_Y(end),num_ponints)),'Color','r');
+                    
+                    app.fwhm_points(1) = plot(app.UIAxes5,vec_z(closestIndex_z_left:closestIndex_z_right),y_data_Z,"Color",'b',"LineStyle","none",'Marker','.');
+                    app.fwhm_points(2) = plot(app.UIAxes5,vec_x(closestIndex_x_left:closestIndex_x_right),y_data_X,"Color",'g',"LineStyle","none",'Marker','.');
+                    app.fwhm_points(3) = plot(app.UIAxes5,vec_y(closestIndex_y_left:closestIndex_y_right),y_data_Y,"Color",'r',"LineStyle","none",'Marker','.');
+                    %%
+                    sigma = sqrt(8*log(2));
+                    FWHM_z = f_z.d*sigma*app.ct_info.SliceThickness/10;
+                    FWHM_x = f_x.d*sigma*app.pt_info.PixelSpacing(1)/10;
+                    FWHM_y = f_y.d*sigma*app.pt_info.PixelSpacing(2)/10;
+                    [max_z,maxFWHM_loc_z] = max(f_z(linspace(x_data_Z(1),x_data_Z(end),num_ponints)));
+                    [max_x,maxFWHM_loc_x] = max(f_x(linspace(x_data_X(1),x_data_X(end),num_ponints)));
+                    [max_y,maxFWHM_loc_y] = max(f_y(linspace(x_data_Y(1),x_data_Y(end),num_ponints)));
+
+                    app.fwhm_max_point(1) = line(app.UIAxes5,[linsZ(maxFWHM_loc_z)-FWHM_z/2, linsZ(maxFWHM_loc_z)+FWHM_z/2],[max_z/2 max_z/2],'color','b');
+                    app.fwhm_max_point(2) = line(app.UIAxes5,[linsX(maxFWHM_loc_x)-FWHM_x/2, linsX(maxFWHM_loc_x)+FWHM_x/2],[max_x/2 max_x/2],'color','g');
+                    app.fwhm_max_point(3) = line(app.UIAxes5,[linsY(maxFWHM_loc_y)-FWHM_y/2, linsY(maxFWHM_loc_y)+FWHM_y/2],[max_y/2 max_y/2],'color','r');
+                    %%
+                    pause(0.5)
+                    
+                    app.output = "FWHM z: "+convertCharsToStrings(num2str(FWHM_z))+"cm"+newline+app.output; 
+                    app.outputTextArea.Value = app.output;
+                    app.output = "FWHM x: "+convertCharsToStrings(num2str(FWHM_x))+"cm"+newline+app.output; 
+                    app.outputTextArea.Value = app.output;
+                    app.output = "FWHM y: "+convertCharsToStrings(num2str(FWHM_y))+"cm"+newline+app.output; 
+                    app.outputTextArea.Value = app.output;
+                    %%
+                    pause(1)
+                    app.output = "[OK] Tarea terminada."+newline+app.output; 
+                    app.outputTextArea.Value = app.output;
+                    drawnow('limitrate')
+                    app.fwhm_points_activated = true;
+                else
+                    pause(0.2)
+                    app.output = "[X] No fue posible realizar el cálculo. Datos insufcientes." +newline+app.output;
+                    app.outputTextArea.Value = app.output;
+                    drawnow('limitrate')
+                    app.fwhm_points_activated = false;
+                end
+                    % definimos el modelo 
+                    
+            end
+            %app.axial_plot = plot(app.UIAxes5,1:app.cortes,app.fwhm_vec,"Color",'b',"LineWidth",1,"LineStyle","-");
+            on_off_all(app,'on')
+        end
+
+        % Button pushed function: Button_5
+        function Button_5Pushed(app, event)
+            posicion = -1 + app.CorteSlider.Value;
+            if posicion<1
+                app.CorteSlider.Value = 1;
+            elseif posicion>app.cortes
+                app.nCorteEditField.Value = app.cortes;
+                app.CorteSlider.Value = app.cortes;
+            else
+                app.nCorteEditField.Value = posicion;
+                app.CorteSlider.Value = posicion;
+            end
+            app.cambiar_x_y = false;
+            draw_figs(app,app.CorteSlider.Value,1,1)
+            lines_and_info(app,app.CorteSlider.Value)
+
+        end
+
+        % Button pushed function: Button_6
+        function Button_6Pushed(app, event)
+            posicion = 1 + app.CorteSlider.Value;
+            if posicion<1
+                app.CorteSlider.Value = 1;
+            elseif posicion>app.cortes
+                app.nCorteEditField.Value = app.cortes;
+                app.CorteSlider.Value = app.cortes;
+            else
+                app.nCorteEditField.Value = posicion;
+                app.CorteSlider.Value = posicion;
+            end
+            app.cambiar_x_y = false;
+            draw_figs(app,app.CorteSlider.Value,1,1)
+            lines_and_info(app,app.CorteSlider.Value)
+        end
+
+        % Button pushed function: Button
+        function ButtonPushed(app, event)
+            %P = get(app.UIAxes2,'CurrentPoint'); 
+            %app.pt_crosshair_x = round(P(1,1)); 
+            app.pt_crosshair_y = app.pt_crosshair_y + 1;
+            %ancho = app.ptu_edges_pixel(2)-app.ptu_edges_pixel(1)+1;
+            altura = app.ptu_edges_pixel(4)-app.ptu_edges_pixel(3)+1;
+            %if app.pt_crosshair_x > ancho
+            %    app.pt_crosshair_x = ancho;
+            %elseif app.pt_crosshair_x<1
+            %    app.pt_crosshair_x = 1;
+            %end
+            if app.pt_crosshair_y > altura
+                app.pt_crosshair_y = altura;
+            elseif app.pt_crosshair_y<1
+                app.pt_crosshair_y = 1;
+            end 
+            %draw_figs(app,app.CorteSlider.Value)
+            lines_and_info(app,app.CorteSlider.Value)
+        end
+
+        % Button pushed function: Button_2
+        function Button_2Pushed(app, event)
+            %P = get(app.UIAxes2,'CurrentPoint'); 
+            app.pt_crosshair_x = app.pt_crosshair_x + 1; 
+            %app.pt_crosshair_y = app.pt_crosshair_y + 1;
+            ancho = app.ptu_edges_pixel(2)-app.ptu_edges_pixel(1)+1;
+            %altura = app.ptu_edges_pixel(4)-app.ptu_edges_pixel(3)+1;
+            if app.pt_crosshair_x > ancho
+                app.pt_crosshair_x = ancho;
+            elseif app.pt_crosshair_x<1
+                app.pt_crosshair_x = 1;
+            end
+            %if app.pt_crosshair_y > altura
+            %    app.pt_crosshair_y = altura;
+            %elseif app.pt_crosshair_y<1
+            %    app.pt_crosshair_y = 1;
+            %end 
+            %draw_figs(app,app.CorteSlider.Value)
+            lines_and_info(app,app.CorteSlider.Value)
+        end
+
+        % Button pushed function: Button_3
+        function Button_3Pushed(app, event)
+            %P = get(app.UIAxes2,'CurrentPoint'); 
+            app.pt_crosshair_x = app.pt_crosshair_x - 1; 
+            %app.pt_crosshair_y = app.pt_crosshair_y + 1;
+            ancho = app.ptu_edges_pixel(2)-app.ptu_edges_pixel(1)+1;
+            %altura = app.ptu_edges_pixel(4)-app.ptu_edges_pixel(3)+1;
+            if app.pt_crosshair_x > ancho
+                app.pt_crosshair_x = ancho;
+            elseif app.pt_crosshair_x<1
+                app.pt_crosshair_x = 1;
+            end
+            %if app.pt_crosshair_y > altura
+            %    app.pt_crosshair_y = altura;
+            %elseif app.pt_crosshair_y<1
+            %    app.pt_crosshair_y = 1;
+            %end 
+            %draw_figs(app,app.CorteSlider.Value)
+            lines_and_info(app,app.CorteSlider.Value)
+        end
+
+        % Button pushed function: Button_4
+        function Button_4Pushed(app, event)
+            %P = get(app.UIAxes2,'CurrentPoint'); 
+            %app.pt_crosshair_x = round(P(1,1)); 
+            app.pt_crosshair_y = app.pt_crosshair_y - 1;
+            %ancho = app.ptu_edges_pixel(2)-app.ptu_edges_pixel(1)+1;
+            altura = app.ptu_edges_pixel(4)-app.ptu_edges_pixel(3)+1;
+            %if app.pt_crosshair_x > ancho
+            %    app.pt_crosshair_x = ancho;
+            %elseif app.pt_crosshair_x<1
+            %    app.pt_crosshair_x = 1;
+            %end
+            if app.pt_crosshair_y > altura
+                app.pt_crosshair_y = altura;
+            elseif app.pt_crosshair_y<1
+                app.pt_crosshair_y = 1;
+            end 
+            %draw_figs(app,app.CorteSlider.Value)
+            lines_and_info(app,app.CorteSlider.Value)
+        end
+
+        % Value changed function: PuntualCheckBox
+        function PuntualCheckBoxValueChanged(app, event)
+            if app.PuntualCheckBox.Value
+                app.NumricoCheckBox.Value = 0;
+                % activamos componentes
+                app.RadioEditField.Enable = "on";
+                app.UmbralEditField.Enable = "on";
+            else
+                app.NumricoCheckBox.Value = 1;
+                app.RadioEditField.Enable = "off";
+                app.UmbralEditField.Enable = "off";
+            end
+            
+        end
+
+        % Value changed function: NumricoCheckBox
+        function NumricoCheckBoxValueChanged(app, event)
+            %value = app.NumricoCheckBox.Value;
+            if app.NumricoCheckBox.Value
+                app.PuntualCheckBox.Value = 0;
+                % activamos componentes
+                app.RadioEditField.Enable = "off";
+                app.UmbralEditField.Enable = "off";
+            else
+                app.PuntualCheckBox.Value = 1;
+                app.RadioEditField.Enable = "on";
+                app.UmbralEditField.Enable = "on";
+            end
+        end
+
+        % Value changed function: AjustarejeCheckBox
+        function AjustarejeCheckBoxValueChanged(app, event)
+            %value = app.AjustarejeCheckBox.Value;
+            if app.AjustarejeCheckBox.Value
+                xlim(app.UIAxes5, [-app.RadiocmEditField.Value app.RadiocmEditField.Value])
+            else
+                xlim(app.UIAxes5, [app.min_x_axis app.max_x_axis])
+            end
+        end
+
+        % Button pushed function: RefrescarButton
+        function RefrescarButtonPushed(app, event)
+            app.CorteSlider.Value = round(app.CorteSlider.Value);
+            %app.app.CorteSlider.Value = round(value);
+            app.cambiar_x_y = false;
+            draw_figs(app,app.CorteSlider.Value,1,1)
+            lines_and_info(app,app.CorteSlider.Value)
+        end
+
+        % Button pushed function: flipvolButton
+        function flipvolButtonPushed(app, event)
+            app.SUV_pt = flip(app.SUV_pt,3);
+            app.SUV_ptu = flip(app.SUV_ptu,3);
+            app.pt_volume = flip(app.pt_volume,3);
+            app.ptu_volume = flip(app.ptu_volume,3);
+            draw_figs(app,app.CorteSlider.Value,1,1)
+            lines_and_info(app,app.CorteSlider.Value)
+            
         end
     end
 
@@ -1022,7 +1706,6 @@ classdef main2 < matlab.apps.AppBase
             app.UIAxes2 = uiaxes(app.PositroniumdotMATMododetomografaUIFigure);
             title(app.UIAxes2, 'PET/PET uncorrected')
             zlabel(app.UIAxes2, 'Z')
-            app.UIAxes2.Toolbar.Visible = 'off';
             app.UIAxes2.PlotBoxAspectRatio = [1 1 1];
             app.UIAxes2.XTick = [];
             app.UIAxes2.YTick = [];
@@ -1033,7 +1716,6 @@ classdef main2 < matlab.apps.AppBase
             app.UIAxes3 = uiaxes(app.PositroniumdotMATMododetomografaUIFigure);
             title(app.UIAxes3, 'Fusión PET/CT')
             zlabel(app.UIAxes3, 'Z')
-            app.UIAxes3.Toolbar.Visible = 'off';
             app.UIAxes3.PlotBoxAspectRatio = [1 1 1];
             app.UIAxes3.XTick = [];
             app.UIAxes3.YTick = [];
@@ -1045,15 +1727,30 @@ classdef main2 < matlab.apps.AppBase
             title(app.UIAxes4, 'Topograma')
             zlabel(app.UIAxes4, 'Z')
             app.UIAxes4.Toolbar.Visible = 'off';
+            app.UIAxes4.DataAspectRatio = [4 10 1];
             app.UIAxes4.XTick = [];
             app.UIAxes4.YTick = [];
-            app.UIAxes4.Position = [21 14 258 297];
+            app.UIAxes4.Position = [13 187 258 133];
+
+            % Create UIAxes5
+            app.UIAxes5 = uiaxes(app.PositroniumdotMATMododetomografaUIFigure);
+            title(app.UIAxes5, 'FWHM total')
+            xlabel(app.UIAxes5, 'Corte (cm)')
+            ylabel(app.UIAxes5, 'SUV')
+            zlabel(app.UIAxes5, 'Z')
+            app.UIAxes5.Layer = 'top';
+            app.UIAxes5.GridLineWidth = 0.1;
+            app.UIAxes5.GridColor = [0 0.4471 0.7412];
+            app.UIAxes5.XGrid = 'on';
+            app.UIAxes5.YGrid = 'on';
+            app.UIAxes5.FontSize = 8;
+            app.UIAxes5.Position = [7 16 264 169];
 
             % Create CorrerButton
             app.CorrerButton = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
             app.CorrerButton.ButtonPushedFcn = createCallbackFcn(app, @CorrerButtonPushed, true);
             app.CorrerButton.Icon = fullfile(pathToMLAPP, 'ico', 'run.png');
-            app.CorrerButton.Position = [505 20 100 23];
+            app.CorrerButton.Position = [505 16 100 23];
             app.CorrerButton.Text = 'Correr';
 
             % Create outputTextArea
@@ -1114,7 +1811,7 @@ classdef main2 < matlab.apps.AppBase
             % Create CorteSliderLabel
             app.CorteSliderLabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
             app.CorteSliderLabel.HorizontalAlignment = 'right';
-            app.CorteSliderLabel.Position = [506 96 34 22];
+            app.CorteSliderLabel.Position = [500 92 34 22];
             app.CorteSliderLabel.Text = 'Corte';
 
             % Create CorteSlider
@@ -1122,7 +1819,8 @@ classdef main2 < matlab.apps.AppBase
             app.CorteSlider.Limits = [1 97];
             app.CorteSlider.ValueChangedFcn = createCallbackFcn(app, @CorteSliderValueChanged, true);
             app.CorteSlider.Enable = 'off';
-            app.CorteSlider.Position = [506 88 380 3];
+            app.CorteSlider.FontSize = 10;
+            app.CorteSlider.Position = [506 80 264 3];
             app.CorteSlider.Value = 1;
 
             % Create SUV0000Label
@@ -1153,7 +1851,6 @@ classdef main2 < matlab.apps.AppBase
 
             % Create XX1YY1Label
             app.XX1YY1Label = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
-            app.XX1YY1Label.Interpreter = 'latex';
             app.XX1YY1Label.FontColor = [0 1 1];
             app.XX1YY1Label.Visible = 'off';
             app.XX1YY1Label.Position = [40 331 75 22];
@@ -1161,7 +1858,6 @@ classdef main2 < matlab.apps.AppBase
 
             % Create XX2YY2Label
             app.XX2YY2Label = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
-            app.XX2YY2Label.Interpreter = 'latex';
             app.XX2YY2Label.HorizontalAlignment = 'right';
             app.XX2YY2Label.FontColor = [0 1 0];
             app.XX2YY2Label.Visible = 'off';
@@ -1170,7 +1866,6 @@ classdef main2 < matlab.apps.AppBase
 
             % Create DistanciaLabel
             app.DistanciaLabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
-            app.DistanciaLabel.Interpreter = 'latex';
             app.DistanciaLabel.HorizontalAlignment = 'center';
             app.DistanciaLabel.FontColor = [1 1 0];
             app.DistanciaLabel.Visible = 'off';
@@ -1183,42 +1878,47 @@ classdef main2 < matlab.apps.AppBase
             app.SeleccindeROIButtonGroup.Enable = 'off';
             app.SeleccindeROIButtonGroup.Title = 'Selección de ROI';
             app.SeleccindeROIButtonGroup.FontSize = 10;
-            app.SeleccindeROIButtonGroup.Position = [287 136 191 166];
+            app.SeleccindeROIButtonGroup.Position = [287 184 191 133];
 
             % Create NingunaButton
             app.NingunaButton = uiradiobutton(app.SeleccindeROIButtonGroup);
             app.NingunaButton.Text = 'Ninguna';
-            app.NingunaButton.Position = [11 123 67 22];
+            app.NingunaButton.FontSize = 10;
+            app.NingunaButton.Position = [11 90 59 22];
             app.NingunaButton.Value = true;
 
             % Create CircularButton
             app.CircularButton = uiradiobutton(app.SeleccindeROIButtonGroup);
             app.CircularButton.Text = 'Circular';
-            app.CircularButton.Position = [11 101 65 22];
+            app.CircularButton.FontSize = 10;
+            app.CircularButton.Position = [11 68 65 22];
 
             % Create RectangularButton
             app.RectangularButton = uiradiobutton(app.SeleccindeROIButtonGroup);
             app.RectangularButton.Text = 'Rectangular';
-            app.RectangularButton.Position = [11 79 87 22];
+            app.RectangularButton.FontSize = 10;
+            app.RectangularButton.Position = [81 68 76 22];
 
             % Create SegmentadoCTButton
             app.SegmentadoCTButton = uiradiobutton(app.SeleccindeROIButtonGroup);
             app.SegmentadoCTButton.Text = 'Segmentado (CT)';
-            app.SegmentadoCTButton.Position = [11 57 117 22];
+            app.SegmentadoCTButton.FontSize = 10;
+            app.SegmentadoCTButton.Position = [11 47 101 22];
 
             % Create SegmentadoPETButton
             app.SegmentadoPETButton = uiradiobutton(app.SeleccindeROIButtonGroup);
             app.SegmentadoPETButton.Text = 'Segmentado (PET)';
-            app.SegmentadoPETButton.Position = [11 34 125 22];
+            app.SegmentadoPETButton.FontSize = 10;
+            app.SegmentadoPETButton.Position = [11 25 108 22];
 
             % Create SegmentadoSUVButton
             app.SegmentadoSUVButton = uiradiobutton(app.SeleccindeROIButtonGroup);
             app.SegmentadoSUVButton.Text = 'Segmentado (SUV)';
-            app.SegmentadoSUVButton.Position = [11 11 126 22];
+            app.SegmentadoSUVButton.FontSize = 10;
+            app.SegmentadoSUVButton.Position = [11 3 109 22];
 
             % Create FX1FY1Label
             app.FX1FY1Label = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
-            app.FX1FY1Label.Interpreter = 'latex';
             app.FX1FY1Label.FontColor = [0 1 1];
             app.FX1FY1Label.Visible = 'off';
             app.FX1FY1Label.Position = [782 184 70 22];
@@ -1226,7 +1926,6 @@ classdef main2 < matlab.apps.AppBase
 
             % Create FX2FY2Label
             app.FX2FY2Label = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
-            app.FX2FY2Label.Interpreter = 'latex';
             app.FX2FY2Label.HorizontalAlignment = 'right';
             app.FX2FY2Label.FontColor = [0 1 0];
             app.FX2FY2Label.Visible = 'off';
@@ -1235,7 +1934,6 @@ classdef main2 < matlab.apps.AppBase
 
             % Create SUVMEANLabel
             app.SUVMEANLabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
-            app.SUVMEANLabel.Interpreter = 'latex';
             app.SUVMEANLabel.HorizontalAlignment = 'center';
             app.SUVMEANLabel.FontColor = [1 1 0];
             app.SUVMEANLabel.Visible = 'off';
@@ -1248,23 +1946,23 @@ classdef main2 < matlab.apps.AppBase
             app.VisualizacinButtonGroup.Enable = 'off';
             app.VisualizacinButtonGroup.Title = 'Visualización';
             app.VisualizacinButtonGroup.FontSize = 10;
-            app.VisualizacinButtonGroup.Position = [287 24 191 90];
+            app.VisualizacinButtonGroup.Position = [287 130 191 50];
 
             % Create PETPETuButton
             app.PETPETuButton = uiradiobutton(app.VisualizacinButtonGroup);
             app.PETPETuButton.Text = 'PET/PETu';
-            app.PETPETuButton.Position = [11 47 78 22];
+            app.PETPETuButton.Position = [11 7 78 22];
             app.PETPETuButton.Value = true;
 
             % Create SUVButton
             app.SUVButton = uiradiobutton(app.VisualizacinButtonGroup);
             app.SUVButton.Text = 'SUV';
-            app.SUVButton.Position = [11 25 65 22];
+            app.SUVButton.Position = [88 7 65 22];
 
             % Create ROIButton
             app.ROIButton = uiradiobutton(app.VisualizacinButtonGroup);
             app.ROIButton.Text = 'ROI';
-            app.ROIButton.Position = [11 2 43 22];
+            app.ROIButton.Position = [138 7 43 22];
 
             % Create VerROICheckBox
             app.VerROICheckBox = uicheckbox(app.PositroniumdotMATMododetomografaUIFigure);
@@ -1327,19 +2025,18 @@ classdef main2 < matlab.apps.AppBase
             app.DilatarButton = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
             app.DilatarButton.ButtonPushedFcn = createCallbackFcn(app, @DilatarButtonPushed, true);
             app.DilatarButton.Enable = 'off';
-            app.DilatarButton.Position = [657 156 100 23];
+            app.DilatarButton.Position = [646 156 100 23];
             app.DilatarButton.Text = 'Dilatar';
 
             % Create ErosionarButton
             app.ErosionarButton = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
             app.ErosionarButton.ButtonPushedFcn = createCallbackFcn(app, @ErosionarButtonPushed, true);
             app.ErosionarButton.Enable = 'off';
-            app.ErosionarButton.Position = [657 122 100 23];
+            app.ErosionarButton.Position = [646 122 100 23];
             app.ErosionarButton.Text = 'Erosionar';
 
             % Create SUVMAXLabel
             app.SUVMAXLabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
-            app.SUVMAXLabel.Interpreter = 'latex';
             app.SUVMAXLabel.HorizontalAlignment = 'center';
             app.SUVMAXLabel.FontColor = [1 0 1];
             app.SUVMAXLabel.Visible = 'off';
@@ -1357,7 +2054,7 @@ classdef main2 < matlab.apps.AppBase
             app.CerrarButton = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
             app.CerrarButton.ButtonPushedFcn = createCallbackFcn(app, @CerrarButtonPushed, true);
             app.CerrarButton.Icon = fullfile(pathToMLAPP, 'ico', 'icon_close.png');
-            app.CerrarButton.Position = [800 20 100 23];
+            app.CerrarButton.Position = [734 16 100 23];
             app.CerrarButton.Text = 'Cerrar';
 
             % Create GuardarButton
@@ -1365,7 +2062,7 @@ classdef main2 < matlab.apps.AppBase
             app.GuardarButton.ButtonPushedFcn = createCallbackFcn(app, @GuardarButtonPushed, true);
             app.GuardarButton.Icon = fullfile(pathToMLAPP, 'ico', 'save.png');
             app.GuardarButton.Enable = 'off';
-            app.GuardarButton.Position = [654 20 100 23];
+            app.GuardarButton.Position = [617 16 100 23];
             app.GuardarButton.Text = 'Guardar';
 
             % Create DeteccindebordeDropDownLabel
@@ -1407,6 +2104,206 @@ classdef main2 < matlab.apps.AppBase
             app.vidamediaLabel.Visible = 'off';
             app.vidamediaLabel.Position = [399 630 120 22];
             app.vidamediaLabel.Text = 'vidamedia';
+
+            % Create WindowLevelEditFieldLabel
+            app.WindowLevelEditFieldLabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
+            app.WindowLevelEditFieldLabel.HorizontalAlignment = 'right';
+            app.WindowLevelEditFieldLabel.Enable = 'off';
+            app.WindowLevelEditFieldLabel.Position = [767 126 80 22];
+            app.WindowLevelEditFieldLabel.Text = 'Window Level';
+
+            % Create WindowLevelEditField
+            app.WindowLevelEditField = uieditfield(app.PositroniumdotMATMododetomografaUIFigure, 'numeric');
+            app.WindowLevelEditField.ValueChangedFcn = createCallbackFcn(app, @WindowLevelEditFieldValueChanged, true);
+            app.WindowLevelEditField.Enable = 'off';
+            app.WindowLevelEditField.Position = [853 124 62 24];
+
+            % Create WindowWidthEditFieldLabel
+            app.WindowWidthEditFieldLabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
+            app.WindowWidthEditFieldLabel.HorizontalAlignment = 'right';
+            app.WindowWidthEditFieldLabel.Enable = 'off';
+            app.WindowWidthEditFieldLabel.Position = [767 99 82 22];
+            app.WindowWidthEditFieldLabel.Text = 'Window Width';
+
+            % Create WindowWidthEditField
+            app.WindowWidthEditField = uieditfield(app.PositroniumdotMATMododetomografaUIFigure, 'numeric');
+            app.WindowWidthEditField.ValueChangedFcn = createCallbackFcn(app, @WindowWidthEditFieldValueChanged, true);
+            app.WindowWidthEditField.Enable = 'off';
+            app.WindowWidthEditField.Position = [853 98 63 22];
+
+            % Create FWHMButtonGroup
+            app.FWHMButtonGroup = uibuttongroup(app.PositroniumdotMATMododetomografaUIFigure);
+            app.FWHMButtonGroup.SelectionChangedFcn = createCallbackFcn(app, @FWHMButtonGroupSelectionChanged, true);
+            app.FWHMButtonGroup.Enable = 'off';
+            app.FWHMButtonGroup.Title = 'FWHM';
+            app.FWHMButtonGroup.FontSize = 10;
+            app.FWHMButtonGroup.Position = [287 15 191 111];
+
+            % Create PromedioButton
+            app.PromedioButton = uiradiobutton(app.FWHMButtonGroup);
+            app.PromedioButton.Text = 'Promedio';
+            app.PromedioButton.FontSize = 10;
+            app.PromedioButton.Position = [5 70 65 22];
+            app.PromedioButton.Value = true;
+
+            % Create PuntualButton
+            app.PuntualButton = uiradiobutton(app.FWHMButtonGroup);
+            app.PuntualButton.Text = 'Puntual';
+            app.PuntualButton.FontSize = 10;
+            app.PuntualButton.Position = [75 70 56 22];
+
+            % Create RadioEditFieldLabel
+            app.RadioEditFieldLabel = uilabel(app.FWHMButtonGroup);
+            app.RadioEditFieldLabel.HorizontalAlignment = 'right';
+            app.RadioEditFieldLabel.FontSize = 10;
+            app.RadioEditFieldLabel.Position = [6 49 31 22];
+            app.RadioEditFieldLabel.Text = 'Radio';
+
+            % Create RadioEditField
+            app.RadioEditField = uieditfield(app.FWHMButtonGroup, 'numeric');
+            app.RadioEditField.FontSize = 10;
+            app.RadioEditField.Enable = 'off';
+            app.RadioEditField.Position = [39 50 24 22];
+            app.RadioEditField.Value = 3;
+
+            % Create MximoButton
+            app.MximoButton = uiradiobutton(app.FWHMButtonGroup);
+            app.MximoButton.Text = 'Máximo';
+            app.MximoButton.FontSize = 10;
+            app.MximoButton.Position = [131 70 57 22];
+
+            % Create IniciarButton
+            app.IniciarButton = uibutton(app.FWHMButtonGroup, 'push');
+            app.IniciarButton.ButtonPushedFcn = createCallbackFcn(app, @IniciarButtonPushed, true);
+            app.IniciarButton.FontSize = 10;
+            app.IniciarButton.Enable = 'off';
+            app.IniciarButton.Position = [138 5 47 22];
+            app.IniciarButton.Text = 'Iniciar';
+
+            % Create UmbralEditFieldLabel
+            app.UmbralEditFieldLabel = uilabel(app.FWHMButtonGroup);
+            app.UmbralEditFieldLabel.HorizontalAlignment = 'right';
+            app.UmbralEditFieldLabel.FontSize = 10;
+            app.UmbralEditFieldLabel.Position = [70 50 37 22];
+            app.UmbralEditFieldLabel.Text = 'Umbral';
+
+            % Create UmbralEditField
+            app.UmbralEditField = uieditfield(app.FWHMButtonGroup, 'numeric');
+            app.UmbralEditField.FontSize = 10;
+            app.UmbralEditField.Enable = 'off';
+            app.UmbralEditField.Position = [122 50 59 22];
+            app.UmbralEditField.Value = 0.5;
+
+            % Create RadiocmEditFieldLabel
+            app.RadiocmEditFieldLabel = uilabel(app.FWHMButtonGroup);
+            app.RadiocmEditFieldLabel.HorizontalAlignment = 'right';
+            app.RadiocmEditFieldLabel.FontSize = 10;
+            app.RadiocmEditFieldLabel.Position = [6 25 54 22];
+            app.RadiocmEditFieldLabel.Text = 'Radio (cm)';
+
+            % Create RadiocmEditField
+            app.RadiocmEditField = uieditfield(app.FWHMButtonGroup, 'numeric');
+            app.RadiocmEditField.Limits = [0 Inf];
+            app.RadiocmEditField.FontSize = 10;
+            app.RadiocmEditField.Enable = 'off';
+            app.RadiocmEditField.Position = [72 25 40 22];
+            app.RadiocmEditField.Value = 5;
+
+            % Create PuntualCheckBox
+            app.PuntualCheckBox = uicheckbox(app.FWHMButtonGroup);
+            app.PuntualCheckBox.ValueChangedFcn = createCallbackFcn(app, @PuntualCheckBoxValueChanged, true);
+            app.PuntualCheckBox.Text = 'Puntual';
+            app.PuntualCheckBox.FontSize = 10;
+            app.PuntualCheckBox.Position = [46 91 56 22];
+            app.PuntualCheckBox.Value = true;
+
+            % Create NumricoCheckBox
+            app.NumricoCheckBox = uicheckbox(app.FWHMButtonGroup);
+            app.NumricoCheckBox.ValueChangedFcn = createCallbackFcn(app, @NumricoCheckBoxValueChanged, true);
+            app.NumricoCheckBox.Text = 'Numérico';
+            app.NumricoCheckBox.Position = [108 91 73 22];
+
+            % Create AjustarejeCheckBox
+            app.AjustarejeCheckBox = uicheckbox(app.FWHMButtonGroup);
+            app.AjustarejeCheckBox.ValueChangedFcn = createCallbackFcn(app, @AjustarejeCheckBoxValueChanged, true);
+            app.AjustarejeCheckBox.Text = 'Ajustar eje';
+            app.AjustarejeCheckBox.FontSize = 10;
+            app.AjustarejeCheckBox.Position = [4 1 69 22];
+
+            % Create RefrescarButton
+            app.RefrescarButton = uibutton(app.FWHMButtonGroup, 'push');
+            app.RefrescarButton.ButtonPushedFcn = createCallbackFcn(app, @RefrescarButtonPushed, true);
+            app.RefrescarButton.FontSize = 9;
+            app.RefrescarButton.Position = [128 31 53 15];
+            app.RefrescarButton.Text = 'Refrescar';
+
+            % Create Button
+            app.Button = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
+            app.Button.ButtonPushedFcn = createCallbackFcn(app, @ButtonPushed, true);
+            app.Button.Icon = fullfile(pathToMLAPP, 'ico', 'arrow_down.png');
+            app.Button.Enable = 'off';
+            app.Button.Position = [873 15 22 24];
+            app.Button.Text = '';
+
+            % Create Button_2
+            app.Button_2 = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
+            app.Button_2.ButtonPushedFcn = createCallbackFcn(app, @Button_2Pushed, true);
+            app.Button_2.Icon = fullfile(pathToMLAPP, 'ico', 'arrow_right.png');
+            app.Button_2.Enable = 'off';
+            app.Button_2.Position = [900 15 22 24];
+            app.Button_2.Text = '';
+
+            % Create Button_3
+            app.Button_3 = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
+            app.Button_3.ButtonPushedFcn = createCallbackFcn(app, @Button_3Pushed, true);
+            app.Button_3.Icon = fullfile(pathToMLAPP, 'ico', 'arrow_left.png');
+            app.Button_3.Enable = 'off';
+            app.Button_3.Position = [847 15 22 24];
+            app.Button_3.Text = '';
+
+            % Create Button_4
+            app.Button_4 = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
+            app.Button_4.ButtonPushedFcn = createCallbackFcn(app, @Button_4Pushed, true);
+            app.Button_4.Icon = fullfile(pathToMLAPP, 'ico', 'arrow_up.png');
+            app.Button_4.Enable = 'off';
+            app.Button_4.Position = [873 45 22 24];
+            app.Button_4.Text = '';
+
+            % Create CrosshairctrlLabel
+            app.CrosshairctrlLabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
+            app.CrosshairctrlLabel.Position = [847 71 79 22];
+            app.CrosshairctrlLabel.Text = 'Crosshair ctrl.';
+
+            % Create Button_5
+            app.Button_5 = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
+            app.Button_5.ButtonPushedFcn = createCallbackFcn(app, @Button_5Pushed, true);
+            app.Button_5.Icon = fullfile(pathToMLAPP, 'ico', 'arrow_left_1.png');
+            app.Button_5.Enable = 'off';
+            app.Button_5.Position = [847 45 22 24];
+            app.Button_5.Text = '';
+
+            % Create Button_6
+            app.Button_6 = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
+            app.Button_6.ButtonPushedFcn = createCallbackFcn(app, @Button_6Pushed, true);
+            app.Button_6.Icon = fullfile(pathToMLAPP, 'ico', 'arrow_right_1.png');
+            app.Button_6.Enable = 'off';
+            app.Button_6.Position = [900 45 22 24];
+            app.Button_6.Text = '';
+
+            % Create nCorteEditField
+            app.nCorteEditField = uieditfield(app.PositroniumdotMATMododetomografaUIFigure, 'numeric');
+            app.nCorteEditField.Limits = [0 90];
+            app.nCorteEditField.ValueChangedFcn = createCallbackFcn(app, @nCorteEditFieldValueChanged, true);
+            app.nCorteEditField.Enable = 'off';
+            app.nCorteEditField.Position = [789 58 38 23];
+
+            % Create flipvolButton
+            app.flipvolButton = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
+            app.flipvolButton.ButtonPushedFcn = createCallbackFcn(app, @flipvolButtonPushed, true);
+            app.flipvolButton.FontSize = 10;
+            app.flipvolButton.Enable = 'off';
+            app.flipvolButton.Position = [657 90 100 22];
+            app.flipvolButton.Text = 'flip(vol)';
 
             % Show the figure after all components are created
             app.PositroniumdotMATMododetomografaUIFigure.Visible = 'on';
