@@ -1,4 +1,4 @@
-classdef main0 < matlab.apps.AppBase
+classdef main0_exported < matlab.apps.AppBase
 
     % Properties that correspond to app components
     properties (Access = public)
@@ -11,7 +11,7 @@ classdef main0 < matlab.apps.AppBase
         directorio1EditFieldLabel     matlab.ui.control.Label
         Image3_2                      matlab.ui.control.Image
         Image3                        matlab.ui.control.Image
-        SeleccioneelmodoButtonGroup   matlab.ui.container.ButtonGroup
+        SeleccioneelmduloButtonGroup  matlab.ui.container.ButtonGroup
         AnlisisconjuntoButton         matlab.ui.control.RadioButton
         VisualizacintomogrficaButton  matlab.ui.control.RadioButton
         VisualizacinindividualButton  matlab.ui.control.RadioButton
@@ -33,12 +33,12 @@ classdef main0 < matlab.apps.AppBase
     
     methods (Access = private)
         
-        function [] = ON_OFF(app,var1,var2,var4,var5,var6) % [] void function
-            app.SeleccioneelmodoButtonGroup.Enable =var1;
+        function [] = ON_OFF(app,var1,var2,var3,var4,var5) % [] void function
+            app.SeleccioneelmduloButtonGroup.Enable =var1;
             app.Button.Enable = var2;
-            app.CerrarButton.Enable =var4;
-            app.SeleccionarButton.Enable=var5;
-            app.CargarButton.Enable = var6;  
+            app.CerrarButton.Enable =var3;
+            app.SeleccionarButton.Enable=var4;
+            app.CargarButton.Enable = var5;  
         end
     end
     
@@ -60,8 +60,9 @@ classdef main0 < matlab.apps.AppBase
             wbar([1,end],:,:) = 0;
             wbar(:,[1,end],:) = 0;
             app.hiddenButton.Icon = wbar;
-            n = 200;
+            n = 100;
              for i = 1:n
+                 pause(0.1)
                  if mod(i,20)==0
                      currentProg = min(round((size(wbar,2)-2)*(i/n)),size(wbar,2)-2);
                      RGB = app.hiddenButton.Icon;
@@ -69,24 +70,30 @@ classdef main0 < matlab.apps.AppBase
                      RGB(2:end-1, 2:currentProg+1, 2) = 0.41016;
                      RGB(2:end-1, 2:currentProg+1, 3) = 0.41016;
                      app.Image4.ImageSource = RGB;
+                     app.Image4.Visible = "on";
                      drawnow nocallbacks
                   end
              end
              pause(0.5)
-             app.output = "Directorio cargado: "+convertCharsToStrings(app.mod1DIR)+newline+app.output;
+             app.output = "Abrir módulo 1";
              app.outputTextArea.Value = app.output;
-             app.directorio1EditField.Value = app.mod1DIR;
-             ON_OFF(app,1,1,1,1,0);             
+             app.directorio1EditField.Value = "";
+             app.directorio1EditField.Enable = "off";
+             ON_OFF(app,1,0,1,0,1);             
         end
 
-        % Selection changed function: SeleccioneelmodoButtonGroup
-        function SeleccioneelmodoButtonGroupSelectionChanged(app, event)
+        % Selection changed function: SeleccioneelmduloButtonGroup
+        function SeleccioneelmduloButtonGroupSelectionChanged(app, event)
             ON_OFF(app,1,1,1,1,0);
+            app.directorio1EditField.Enable = "on";
             if app.VisualizacinindividualButton.Value == 1
                 app.directorio1EditFieldLabel.Text = "Directorio";
                 app.output = "Directorio cargado: "+convertCharsToStrings(app.mod1DIR)+newline+app.output;
+                app.output = "Abrir módulo 1";
                 app.outputTextArea.Value = app.output;
-                app.directorio1EditField.Value = app.mod1DIR;
+                app.directorio1EditField.Value = "";
+                app.directorio1EditField.Enable = "off";
+                ON_OFF(app,1,0,1,0,1);  
             end
             if app.VisualizacintomogrficaButton.Value == 1
                 app.directorio1EditFieldLabel.Text = "Estudio";
@@ -146,6 +153,7 @@ classdef main0 < matlab.apps.AppBase
                 end
             end
             ON_OFF(app,1,1,1,1,0);
+            figure(app.PositroniumMATUIFigure)
         end
 
         % Button pushed function: SeleccionarButton
@@ -270,39 +278,40 @@ classdef main0 < matlab.apps.AppBase
 
             % Create PositroniumMATUIFigure and hide until all components are created
             app.PositroniumMATUIFigure = uifigure('Visible', 'off');
-            app.PositroniumMATUIFigure.Position = [960 100 578 493];
+            app.PositroniumMATUIFigure.Position = [960 100 577 487];
             app.PositroniumMATUIFigure.Name = 'Positronium.MAT';
             app.PositroniumMATUIFigure.Icon = fullfile(pathToMLAPP, 'ico', 'positronium_ico_small.jpg');
             app.PositroniumMATUIFigure.Resize = 'off';
 
             % Create Image
             app.Image = uiimage(app.PositroniumMATUIFigure);
-            app.Image.Position = [16 294 212 190];
+            app.Image.Position = [16 288 212 190];
             app.Image.ImageSource = fullfile(pathToMLAPP, 'ico', 'positronium_ico_medium.png');
 
             % Create HTML
             app.HTML = uihtml(app.PositroniumMATUIFigure);
             app.HTML.HTMLSource = '<p><span style="font-family:Courier New,Courier,monospace"><span style="font-size:46px">{Positronium<br /><strong>dot</strong><br />MAT}</span></span></p>';
-            app.HTML.Position = [228 282 348 182];
+            app.HTML.Position = [228 276 348 182];
 
             % Create Image2
             app.Image2 = uiimage(app.PositroniumMATUIFigure);
-            app.Image2.Position = [327 316 242 94];
+            app.Image2.Position = [327 310 242 94];
             app.Image2.ImageSource = fullfile(pathToMLAPP, 'ico', 'pet_ct.png');
 
             % Create HTML2
             app.HTML2 = uihtml(app.PositroniumMATUIFigure);
             app.HTML2.HTMLSource = '<p style="text-align:left;"> v1.0   <span style="float:right;">        https://github.com/osvaldo13576/positronium.mat </span></p>';
-            app.HTML2.Position = [16 -3 555 36];
+            app.HTML2.Position = [16 -9 555 36];
 
             % Create Image4
             app.Image4 = uiimage(app.PositroniumMATUIFigure);
-            app.Image4.Position = [210 198 351 28];
+            app.Image4.Visible = 'off';
+            app.Image4.Position = [210 192 351 28];
 
             % Create hiddenButton
             app.hiddenButton = uibutton(app.PositroniumMATUIFigure, 'push');
             app.hiddenButton.Visible = 'off';
-            app.hiddenButton.Position = [476 10 100 23];
+            app.hiddenButton.Position = [476 4 100 23];
             app.hiddenButton.Text = 'hidden';
 
             % Create CerrarButton
@@ -310,58 +319,58 @@ classdef main0 < matlab.apps.AppBase
             app.CerrarButton.ButtonPushedFcn = createCallbackFcn(app, @CerrarButtonPushed, true);
             app.CerrarButton.Icon = fullfile(pathToMLAPP, 'ico', 'icon_close.png');
             app.CerrarButton.Enable = 'off';
-            app.CerrarButton.Position = [467 161 94 23];
+            app.CerrarButton.Position = [467 155 94 23];
             app.CerrarButton.Text = 'Cerrar';
 
-            % Create SeleccioneelmodoButtonGroup
-            app.SeleccioneelmodoButtonGroup = uibuttongroup(app.PositroniumMATUIFigure);
-            app.SeleccioneelmodoButtonGroup.SelectionChangedFcn = createCallbackFcn(app, @SeleccioneelmodoButtonGroupSelectionChanged, true);
-            app.SeleccioneelmodoButtonGroup.Enable = 'off';
-            app.SeleccioneelmodoButtonGroup.Title = 'Seleccione el modo';
-            app.SeleccioneelmodoButtonGroup.Position = [16 161 178 106];
+            % Create SeleccioneelmduloButtonGroup
+            app.SeleccioneelmduloButtonGroup = uibuttongroup(app.PositroniumMATUIFigure);
+            app.SeleccioneelmduloButtonGroup.SelectionChangedFcn = createCallbackFcn(app, @SeleccioneelmduloButtonGroupSelectionChanged, true);
+            app.SeleccioneelmduloButtonGroup.Enable = 'off';
+            app.SeleccioneelmduloButtonGroup.Title = 'Seleccione el módulo';
+            app.SeleccioneelmduloButtonGroup.Position = [16 155 178 106];
 
             % Create VisualizacinindividualButton
-            app.VisualizacinindividualButton = uiradiobutton(app.SeleccioneelmodoButtonGroup);
+            app.VisualizacinindividualButton = uiradiobutton(app.SeleccioneelmduloButtonGroup);
             app.VisualizacinindividualButton.Text = 'Visualización individual';
             app.VisualizacinindividualButton.Position = [11 60 145 22];
             app.VisualizacinindividualButton.Value = true;
 
             % Create VisualizacintomogrficaButton
-            app.VisualizacintomogrficaButton = uiradiobutton(app.SeleccioneelmodoButtonGroup);
+            app.VisualizacintomogrficaButton = uiradiobutton(app.SeleccioneelmduloButtonGroup);
             app.VisualizacintomogrficaButton.Text = 'Visualización tomográfica';
             app.VisualizacintomogrficaButton.Position = [11 38 158 22];
 
             % Create AnlisisconjuntoButton
-            app.AnlisisconjuntoButton = uiradiobutton(app.SeleccioneelmodoButtonGroup);
+            app.AnlisisconjuntoButton = uiradiobutton(app.SeleccioneelmduloButtonGroup);
             app.AnlisisconjuntoButton.Text = 'Análisis conjunto';
             app.AnlisisconjuntoButton.Position = [11 16 112 22];
 
             % Create Image3
             app.Image3 = uiimage(app.PositroniumMATUIFigure);
-            app.Image3.Position = [464 44 51 97];
+            app.Image3.Position = [464 38 51 97];
             app.Image3.ImageSource = fullfile(pathToMLAPP, 'ico', 'unam_logo.png');
 
             % Create Image3_2
             app.Image3_2 = uiimage(app.PositroniumMATUIFigure);
-            app.Image3_2.Position = [521 44 52 97];
+            app.Image3_2.Position = [521 38 52 97];
             app.Image3_2.ImageSource = fullfile(pathToMLAPP, 'ico', 'fc.png');
 
             % Create directorio1EditFieldLabel
             app.directorio1EditFieldLabel = uilabel(app.PositroniumMATUIFigure);
             app.directorio1EditFieldLabel.HorizontalAlignment = 'right';
-            app.directorio1EditFieldLabel.Position = [200 243 61 22];
+            app.directorio1EditFieldLabel.Position = [200 237 61 22];
             app.directorio1EditFieldLabel.Text = 'directorio1';
 
             % Create directorio1EditField
             app.directorio1EditField = uieditfield(app.PositroniumMATUIFigure, 'text');
             app.directorio1EditField.Editable = 'off';
-            app.directorio1EditField.Position = [276 243 261 22];
+            app.directorio1EditField.Position = [276 237 261 22];
 
             % Create CargarButton
             app.CargarButton = uibutton(app.PositroniumMATUIFigure, 'push');
             app.CargarButton.ButtonPushedFcn = createCallbackFcn(app, @CargarButtonPushed, true);
             app.CargarButton.Enable = 'off';
-            app.CargarButton.Position = [336 161 100 23];
+            app.CargarButton.Position = [336 155 100 23];
             app.CargarButton.Text = 'Cargar';
 
             % Create Button
@@ -369,20 +378,20 @@ classdef main0 < matlab.apps.AppBase
             app.Button.ButtonPushedFcn = createCallbackFcn(app, @ButtonPushed, true);
             app.Button.Icon = fullfile(pathToMLAPP, 'ico', 'open.png');
             app.Button.Enable = 'off';
-            app.Button.Position = [542 244 29 23];
+            app.Button.Position = [542 238 29 23];
             app.Button.Text = '';
 
             % Create outputTextArea
             app.outputTextArea = uitextarea(app.PositroniumMATUIFigure);
             app.outputTextArea.FontColor = [0 1 0];
             app.outputTextArea.BackgroundColor = [0 0 0];
-            app.outputTextArea.Position = [16 37 443 104];
+            app.outputTextArea.Position = [16 31 443 104];
 
             % Create SeleccionarButton
             app.SeleccionarButton = uibutton(app.PositroniumMATUIFigure, 'push');
             app.SeleccionarButton.ButtonPushedFcn = createCallbackFcn(app, @SeleccionarButtonPushed, true);
             app.SeleccionarButton.Enable = 'off';
-            app.SeleccionarButton.Position = [210 161 100 23];
+            app.SeleccionarButton.Position = [210 155 100 23];
             app.SeleccionarButton.Text = 'Seleccionar';
 
             % Show the figure after all components are created
@@ -394,7 +403,7 @@ classdef main0 < matlab.apps.AppBase
     methods (Access = public)
 
         % Construct app
-        function app = main0
+        function app = main0_exported
 
             % Create UIFigure and components
             createComponents(app)

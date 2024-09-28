@@ -11,15 +11,27 @@ function [dir_name,perfil] = vector_perfiles(directorio_dicom)
         cortes.("estudio_" + num2str(i)) = tam(1);
         %info.("estudio_" + num2str(i)) = dicominfo(fullfile(dicom.("estudio_" + num2str(i)),carpeta,lista.("estudio_" + num2str(i))(1,:)));
         perfil.("estudio_" + num2str(i)) = zeros(cortes.("estudio_" + num2str(i)),1,'double');
+        loc_slice = zeros(1,tam(1));
         for n = 1:tam(1)
             info_corte.("estudio_" + num2str(i)) = dicominfo(fullfile(dicom.("estudio_" + num2str(i)),carpeta,lista.("estudio_" + num2str(i))(n,:)));
+            %n_corte_instance = info_corte.InstanceNumber;
+            loc_slice(n) = info_corte.("estudio_" + num2str(i)).SliceLocation;
+        end
+        [~,Slicesorted] = sort(loc_slice);
+        for n = 1:tam(1)
+            info_corte.("estudio_" + num2str(i)) = dicominfo(fullfile(dicom.("estudio_" + num2str(i)),carpeta,lista.("estudio_" + num2str(i))(Slicesorted(n),:)));
             %segmentamos; eliminamos valores por encima de 1000
             img = double(dicomread(info_corte.("estudio_" + num2str(i))));
             mask = zeros(size(img),'double');
-            cal_fac = 105;
-            mask(img>-cal_fac-info_corte.("estudio_" + num2str(i)).RescaleIntercept &img<cal_fac-info_corte.("estudio_" + num2str(i)).RescaleIntercept) = 1;
+            cal_fac1 = 50;
+            cal_fac2 = 80;
+            mask(img>-cal_fac1-info_corte.("estudio_" + num2str(i)).RescaleIntercept &img<cal_fac2-info_corte.("estudio_" + num2str(i)).RescaleIntercept) = 1;
             img = img.*mask;
-            perfil.("estudio_" + num2str(i))(n) = mean(mean(img));
+            valor_promed = mean(mean(img));
+            if isnan(valor_promed)
+                valor_promed = 0;
+            end
+            perfil.("estudio_" + num2str(i))(n) = valor_promed;
         end
     end 
 end

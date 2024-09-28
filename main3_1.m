@@ -1,10 +1,16 @@
-classdef main3_1 < matlab.apps.AppBase
+        classdef main3_1_exported < matlab.apps.AppBase
 
     % Properties that correspond to app components
     properties (Access = public)
         PositroniumdotMATMododeanlisisconjunto2UIFigure  matlab.ui.Figure
+        MaxSUVSlider               matlab.ui.control.Slider
+        MaxSUVSliderLabel          matlab.ui.control.Label
+        UILabel                    matlab.ui.control.Label
+        SRNLabel                   matlab.ui.control.Label
+        COVLabel                   matlab.ui.control.Label
+        GuardarButton_2            matlab.ui.control.Button
         ResultadosButton           matlab.ui.control.Button
-        VerVROICheckBox            matlab.ui.control.CheckBox
+        VerVOICheckBox             matlab.ui.control.CheckBox
         AplicarButton              matlab.ui.control.Button
         SegEditField               matlab.ui.control.EditField
         SegEditFieldLabel          matlab.ui.control.Label
@@ -37,7 +43,7 @@ classdef main3_1 < matlab.apps.AppBase
         ResetsegmentacinButton     matlab.ui.control.Button
         outputTextArea             matlab.ui.control.TextArea
         VisualizacinButtonGroup    matlab.ui.container.ButtonGroup
-        VolumenROIButton           matlab.ui.control.RadioButton
+        VOIButton                  matlab.ui.control.RadioButton
         FusinButton                matlab.ui.control.RadioButton
         CTButton                   matlab.ui.control.RadioButton
         ROIButton                  matlab.ui.control.RadioButton
@@ -90,9 +96,11 @@ classdef main3_1 < matlab.apps.AppBase
         ct_volume;ct_info;ct_time
         pt_volume;pt_info;pt_time
         pt_edges_pixel
-        ct_edges_on
+        ct_edges_on = 0
         SUV_pt
         roi_map
+        %%
+        ptu_edges_pixel
         %%
         global_max_SUV
         WW
@@ -101,7 +109,8 @@ classdef main3_1 < matlab.apps.AppBase
         CT_resized 
         fused
         %%
-        roi_activated
+        roi_activated = false;
+        roi_CT_selected_state = true;
         PT_p1
         PT_p2
         roi_fig
@@ -138,11 +147,11 @@ classdef main3_1 < matlab.apps.AppBase
             % cargamos la lista de archivos en la carpeta
             % WindowWidth,ancho,altura,ImagePositionPatient,PixelSpacing
             lista = dir(fullfile(directorio,carpeta,modalidad));
-            if pt_true == 1
-                lista = flipud([char({lista.name})]);
-            else
-                lista = [char({lista.name})];
-            end
+            %if pt_true == 1
+            %lista = flipud([char({lista.name})]);
+            %else
+            lista = [char({lista.name})];
+            %end
             info = dicominfo(fullfile(directorio,carpeta,lista(1,:)));
             ancho = double(info.Width);
             altura = double(info.Height);
@@ -150,10 +159,17 @@ classdef main3_1 < matlab.apps.AppBase
             tiempo = zeros(1,cortes);
             RescaleSlope = zeros(1,cortes);
             decay_factor = zeros(1,cortes);
+            loc_slice = zeros(1,cortes);
+            for n = 1:size(lista,1)
+                info_corte = dicominfo(fullfile(directorio,carpeta,lista(n,:)));
+                %n_corte_instance = info_corte.InstanceNumber;
+                loc_slice(n) = info_corte.SliceLocation;
+            end
+            [~,Slicesorted] = sort(loc_slice);
             if pt_true
                 volumen = zeros(altura,ancho,cortes,'uint16');
                 for n = 1:cortes
-                    info_corte = dicominfo(fullfile(directorio,carpeta,lista(xi+n-1,:)));
+                    info_corte = dicominfo(fullfile(directorio,carpeta,lista(Slicesorted(xi+n-1),:)));
                     decay_factor(1,n) = info_corte.DecayFactor;
                     AcquisitionTime = info_corte.AcquisitionTime;
                     %AcquisitionTime = info_corte.StudyTime;
@@ -169,7 +185,7 @@ classdef main3_1 < matlab.apps.AppBase
             if not(pt_true)
                 volumen = zeros(altura,ancho,cortes,'double');
                 for n = 1:cortes
-                    info_corte = dicominfo(fullfile(directorio,carpeta,lista(xi+n-1,:)));
+                    info_corte = dicominfo(fullfile(directorio,carpeta,lista(Slicesorted(xi+n-1),:)));
                     AcquisitionTime = info_corte.AcquisitionTime;
                     RescaleSlope(1,n) = info_corte.RescaleSlope;
                     hora = str2double(AcquisitionTime(1:2));
@@ -182,31 +198,7 @@ classdef main3_1 < matlab.apps.AppBase
             end
 
         end
-        function SUV = SUVolume(~, PET_volume,pt_info,RescaleSlope,ad_time,factor_decaimiento,cortes)
-            PET_volume = double(PET_volume);
-            actividad_0=pt_info.RadiopharmaceuticalInformationSequence.Item_1.RadionuclideTotalDose;
-            t_string = pt_info.RadiopharmaceuticalInformationSequence.Item_1.RadiopharmaceuticalStartTime;
-            hora = str2double(t_string(1:2));
-            minutos = str2double(t_string(3:4));
-            segundos = str2double(t_string(5:end));
-            t1 = hora*60*60+minutos*60+segundos;
-            vida_media=pt_info.RadiopharmaceuticalInformationSequence.Item_1.RadionuclideHalfLife;
-            % factor_calibracion_dosis=pt_info.DoseCalibrationFactor;
-            peso_paciente = pt_info.PatientWeight*1000;
-            factor_calibracion_dosis =1;
-            SUV = zeros(size(PET_volume));
-            
-            for n = 1:cortes
-                t2 = ad_time(n);
-                delta_t = t2-t1;
-                actividad = actividad_0*exp(-delta_t*log(2)/vida_media);
-                factor_decaimiento(n) = 1;
-                %RescaleSlope(n)
-                %factor_decaimiento(n)
-                %exp(-delta_t*log(2)/vida_media)
-                SUV(:,:,n) = (PET_volume(:,:,n)*RescaleSlope(n)*factor_calibracion_dosis)*peso_paciente/actividad;
-            end
-        end
+
         function []= draw_figs(app,corte,estudio_n)%,x,y)
             delete(app.main_fig)
             title(app.UIAxes, "Estudio "+int2str(estudio_n)+", corte "+int2str(corte))
@@ -229,7 +221,7 @@ classdef main3_1 < matlab.apps.AppBase
                     app.fused = uint8(not(borde_roi)).*app.fused;
                     app.fused= app.fused + matriz_amarilla;                    
                 end
-                if (app.SegmentadoCTButton.Value == 1 || app.SegmentadoPETButton.Value == 1 || app.SegmentadoSUVButton.Value == 1) && app.VerVROICheckBox.Value
+                if (app.SegmentadoCTButton.Value == 1 || app.SegmentadoPETButton.Value == 1 || app.SegmentadoSUVButton.Value == 1) && app.VerVOICheckBox.Value
                     tam = size(app.CT_resized);
                     matriz_amarilla = zeros(tam(1),tam(2),3,'uint8');matriz_amarilla(:,:,1) = 255;matriz_amarilla(:,:,2) = 255;%matriz_amarilla(:,:,3) = 0;
                     borde_roi = edge(app.roi_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,corte),char(app.DeteccindebordeDropDown.Items(app.DeteccindebordeDropDown.Value)));
@@ -259,7 +251,7 @@ classdef main3_1 < matlab.apps.AppBase
                     app.fused = uint8(not(borde_roi)).*app.fused;
                     app.fused= app.fused + matriz_amarilla;                    
                 end
-                if (app.SegmentadoCTButton.Value == 1 || app.SegmentadoPETButton.Value == 1 || app.SegmentadoSUVButton.Value == 1) && app.VerVROICheckBox.Value
+                if (app.SegmentadoCTButton.Value == 1 || app.SegmentadoPETButton.Value == 1 || app.SegmentadoSUVButton.Value == 1) && app.VerVOICheckBox.Value
                     tam = size(app.CT_resized);
                     matriz_amarilla = zeros(tam(1),tam(2),3,'uint8');matriz_amarilla(:,:,1) = 255;matriz_amarilla(:,:,2) = 255;%matriz_amarilla(:,:,3) = 0;
                     borde_roi = edge(app.roi_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,corte),char(app.DeteccindebordeDropDown.Items(app.DeteccindebordeDropDown.Value)));
@@ -310,7 +302,7 @@ classdef main3_1 < matlab.apps.AppBase
                app.UIAxes.FontSize = 10;
                colormap(app.UIAxes,gray); 
             end
-            if app.VolumenROIButton.Value
+            if app.VOIButton.Value
                app.main_fig = imagesc(app.UIAxes,app.roi_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,corte),"HitTest","off",[0,1]);
                c = colorbar(app.UIAxes,'TickLabels',num2cell(linspace(0,1,9)));
                c.Label.String = 'ROI binario'; 
@@ -319,11 +311,13 @@ classdef main3_1 < matlab.apps.AppBase
             end
             
             app.UIAxes.PlotBoxAspectRatio = [1, 1, 1];
-            app.UIAxes.XLim = [1, app.pt_edges_pixel.("estudio_" + num2str(estudio_n))(4)-app.pt_edges_pixel.("estudio_" + num2str(estudio_n))(3)+1];
-            app.UIAxes.YLim = [1, app.pt_edges_pixel.("estudio_" + num2str(estudio_n))(2)-app.pt_edges_pixel.("estudio_" + num2str(estudio_n))(1)+1];
+            tam = size(app.CT_resized);
+            app.UIAxes.XLim = [1, tam(1)];
+            app.UIAxes.YLim = [1, tam(2)];
+            app.UIAxes.YDir = 'reverse';
             %%
             % tiempo char
-            if app.ROIButton.Value == 1 || app.VolumenROIButton.Value == 1
+            if app.ROIButton.Value == 1 || app.VOIButton.Value == 1
                 app.DDMMAAAAalasHHMMSSLabel.Visible = "off";
                 app.Actividad0Label.Visible ="off";
                 app.vidamediaLabel.Visible = "off";
@@ -344,11 +338,35 @@ classdef main3_1 < matlab.apps.AppBase
             if app.HerramientasDropDown.Value == 2
                 rule_new_fig(app)
             end
-            if (app.CircularButton.Value==1 || app.RectangularButton.Value ==1) && app.Fig_point_created
+            if (app.CircularButton.Value==1 || app.RectangularButton.Value ==1 || app.SegmentadoCTButton.Value==1 ) && app.Fig_point_created
                 ROI_fig_SUV_CT(app)
             end
-            
-            
+            app.roi_CT_selected_state = true;
+        end
+
+        function SUV = SUVolume(~, PET_volume,pt_info,RescaleSlope,ad_time,cortes)
+            PET_volume = double(PET_volume);
+            actividad_0=pt_info.RadiopharmaceuticalInformationSequence.Item_1.RadionuclideTotalDose;
+            t_string = pt_info.RadiopharmaceuticalInformationSequence.Item_1.RadiopharmaceuticalStartTime;
+            hora = str2double(t_string(1:2));
+            minutos = str2double(t_string(3:4));
+            segundos = str2double(t_string(5:end));
+            t1 = hora*60*60+minutos*60+segundos;
+            vida_media=pt_info.RadiopharmaceuticalInformationSequence.Item_1.RadionuclideHalfLife;
+            % factor_calibracion_dosis=pt_info.DoseCalibrationFactor;
+            peso_paciente = pt_info.PatientWeight*1000;
+            factor_calibracion_dosis =1;
+            SUV = zeros(size(PET_volume));
+            for n = 1:cortes
+                t2 = ad_time(n);
+                delta_t = t2-t1;
+                actividad = actividad_0*exp(-delta_t*log(2)/vida_media);
+                %factor_decaimiento(n) = 1;
+                %RescaleSlope(n)
+                %factor_decaimiento(n)
+                %exp(-delta_t*log(2)/vida_media)
+                SUV(:,:,n) = (PET_volume(:,:,n)*RescaleSlope(n)*factor_calibracion_dosis)*peso_paciente/actividad;
+            end
         end
         function fig = get_crosshair(app,x,y)
             lineX = xline(app.UIAxes, x,'Color','y','linewidth',0.8,"HitTest","off");
@@ -429,6 +447,19 @@ classdef main3_1 < matlab.apps.AppBase
         end
 
         function [] = ROI_fig_SUV_CT(app)
+                %%
+                % roi segmentation
+                app.ROIlowEditField.Enable = "off";
+                app.ROIhightEditField.Enable ="off";
+                app.ResetsegmentacinButton.Enable = "off";
+                app.DeteccindebordeDropDown.Enable = "off";
+                % op morf
+                app.OpmofolgicaDropDown.Enable = "off";
+                app.OpmofolgicaDropDown.Value = 1;
+                app.RadiomorfEditField.Enable ="off";
+                app.ErosionarButton.Enable = "off";
+                app.DilatarButton.Enable="off";
+                %%
                 delete([app.PT_p1,app.PT_p2,app.roi_fig])
                 app.FX1FY1Label.Visible = "off";
                 app.FX2FY2Label.Visible = "off";
@@ -456,6 +487,24 @@ classdef main3_1 < matlab.apps.AppBase
                     elseif app.CircularButton.Value == 1
                         app.roi_fig = viscircles(app.UIAxes,app.PT_xy_p1,norm(app.PT_xy_p2-app.PT_xy_p1),'EdgeColor','y','LineWidth',0.7);
                         gen_mean_SUV_info(app)
+                    elseif app.SegmentadoCTButton.Value == 1
+                        % roi segmentation
+                        app.ROIlowEditField.Enable = "on";
+                        app.ROIhightEditField.Enable ="on";
+                        app.ResetsegmentacinButton.Enable = "off";
+                        app.DeteccindebordeDropDown.Enable = "on";
+                        % op morf
+                        app.OpmofolgicaDropDown.Enable = "on";
+                        app.OpmofolgicaDropDown.Value = 1;
+                        app.RadiomorfEditField.Enable ="on";
+                        app.ErosionarButton.Enable = "on";
+                        app.DilatarButton.Enable="on";
+                        %%
+                        x = min(app.PT_xy_p1(1),app.PT_xy_p2(1));
+                        y = min(app.PT_xy_p1(2),app.PT_xy_p2(2));
+                        w = abs(app.PT_xy_p2(1)-app.PT_xy_p1(1));
+                        h = abs(app.PT_xy_p2(2)-app.PT_xy_p1(2));
+                        app.roi_fig = rectangle(app.UIAxes,'Position',[x y w h],'EdgeColor','y');
                     end
                 end
             end
@@ -463,33 +512,50 @@ classdef main3_1 < matlab.apps.AppBase
             function [] = gen_mean_SUV_info(app)
                 app.SUVMEANLabel.Visible = "on";
                 app.SUVMAXLabel.Visible = "on";
+                app.COVLabel.Visible = "on";
+                app.UILabel.Visible = "on";
+                app.SRNLabel.Visible = "on";
                 suv_corte = app.SUV_pt.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value);
 
-                if app.SegmentadoCTButton.Value == 1
-                    app.CT_resized = imresize(app.ct_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value),size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value)));
-                    %app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
-                    roi_vec = suv_corte(app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)));
-                    SUVchar = sprintf('%.2f',mean(roi_vec));
-                    SUVSDchar = sprintf('%.2f',std(roi_vec));
-                    app.SUVMEANLabel.Text = ['SUV_MEAN = ',SUVchar,char(177),SUVSDchar];
-                    SUVchar = sprintf('%.2f',max(roi_vec));
-                    app.SUVMAXLabel.Text = ['SUV_MAX = ',SUVchar];
-                elseif app.SegmentadoPETButton.Value == 1
+                
+                if app.SegmentadoPETButton.Value == 1
                     %app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roicolor(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value),app.ROIlowEditField.Value,app.ROIhightEditField.Value);
                     roi_vec = suv_corte(app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)));
-                    SUVchar = sprintf('%.2f',mean(roi_vec));
-                    SUVSDchar = sprintf('%.2f',std(roi_vec));
+                    mean_SUV = mean(roi_vec);
+                    SD_SUV = std(roi_vec);
+                    min_SUV = min(roi_vec);
+                    max_SUV = max(roi_vec);
+                    %
+                    SUVchar = sprintf('%.3f',mean_SUV);
+                    SUVSDchar = sprintf('%.3f',SD_SUV);
+                    SUVSNRchar = sprintf('%.3f',(mean_SUV)/(SD_SUV));
+                    SUVCOVchar = sprintf('%.3f',100*(SD_SUV)/(mean_SUV));
+                    SUVUIchar = sprintf('%.3f',(max_SUV-min_SUV)/(max_SUV+min_SUV));
                     app.SUVMEANLabel.Text = ['SUV_MEAN = ',SUVchar,char(177),SUVSDchar];
-                    SUVchar = sprintf('%.2f',max(roi_vec));
+                    SUVchar = sprintf('%.3f',max(roi_vec));
                     app.SUVMAXLabel.Text = ['SUV_MAX = ',SUVchar];
+                    app.COVLabel.Text = ['COV = ',SUVCOVchar,'%'];
+                    app.SRNLabel.Text = ['SNR = ',SUVSNRchar];
+                    app.UILabel.Text = ['IU = ',SUVUIchar];
                 elseif app.SegmentadoSUVButton.Value == 1 
                     %app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roicolor(app.SUV_pt.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value),app.ROIlowEditField.Value,app.ROIhightEditField.Value);
                     roi_vec = suv_corte(app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)));
-                    SUVchar = sprintf('%.2f',mean(roi_vec));
-                    SUVSDchar = sprintf('%.2f',std(roi_vec));
+                    mean_SUV = mean(roi_vec);
+                    SD_SUV = std(roi_vec);
+                    min_SUV = min(roi_vec);
+                    max_SUV = max(roi_vec);
+                    %
+                    SUVchar = sprintf('%.3f',mean_SUV);
+                    SUVSDchar = sprintf('%.3f',SD_SUV);
+                    SUVSNRchar = sprintf('%.3f',(mean_SUV)/(SD_SUV));
+                    SUVCOVchar = sprintf('%.3f',100*(SD_SUV)/(mean_SUV));
+                    SUVUIchar = sprintf('%.3f',(max_SUV-min_SUV)/(max_SUV+min_SUV));
                     app.SUVMEANLabel.Text = ['SUV_MEAN = ',SUVchar,char(177),SUVSDchar];
-                    SUVchar = sprintf('%.2f',max(roi_vec));
+                    SUVchar = sprintf('%.3f',max(roi_vec));
                     app.SUVMAXLabel.Text = ['SUV_MAX = ',SUVchar];
+                    app.COVLabel.Text = ['COV = ',SUVCOVchar,'%'];
+                    app.SRNLabel.Text = ['SNR = ',SUVSNRchar];
+                    app.UILabel.Text = ['IU = ',SUVUIchar];
                 elseif app.RectangularButton.Value == 1 && app.roi_activated
                     roi_map_previo = zeros(size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,1)),'logical');
                     roi_map_previo(min(app.PT_xy_p1(2),app.PT_xy_p2(2)):max(app.PT_xy_p1(2),app.PT_xy_p2(2)),...
@@ -497,11 +563,49 @@ classdef main3_1 < matlab.apps.AppBase
                     app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roi_map_previo;
                     %%
                     roi_vec = suv_corte(app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)));
-                    SUVchar = sprintf('%.2f',mean(roi_vec));
-                    SUVSDchar = sprintf('%.2f',std(roi_vec));
+                    mean_SUV = mean(roi_vec);
+                    SD_SUV = std(roi_vec);
+                    min_SUV = min(roi_vec);
+                    max_SUV = max(roi_vec);
+                    %
+                    SUVchar = sprintf('%.3f',mean_SUV);
+                    SUVSDchar = sprintf('%.3f',SD_SUV);
+                    SUVSNRchar = sprintf('%.3f',(mean_SUV)/(SD_SUV));
+                    SUVCOVchar = sprintf('%.3f',100*(SD_SUV)/(mean_SUV));
+                    SUVUIchar = sprintf('%.3f',(max_SUV-min_SUV)/(max_SUV+min_SUV));
                     app.SUVMEANLabel.Text = ['SUV_MEAN = ',SUVchar,char(177),SUVSDchar];
-                    SUVchar = sprintf('%.2f',max(roi_vec));
+                    SUVchar = sprintf('%.3f',max(roi_vec));
                     app.SUVMAXLabel.Text = ['SUV_MAX = ',SUVchar];
+                    app.COVLabel.Text = ['COV = ',SUVCOVchar,'%'];
+                    app.SRNLabel.Text = ['SNR = ',SUVSNRchar];
+                    app.UILabel.Text = ['IU = ',SUVUIchar];
+                elseif app.SegmentadoCTButton.Value == 1 && app.roi_activated
+                    if  app.roi_CT_selected_state
+                        app.CT_resized = imresize(app.ct_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value),size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value)));
+                        app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);                
+                        roi_map_previo = zeros(size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,1)),'logical');
+                        roi_map_previo(min(app.PT_xy_p1(2),app.PT_xy_p2(2)):max(app.PT_xy_p1(2),app.PT_xy_p2(2)),...
+                            min(app.PT_xy_p1(1),app.PT_xy_p2(1)):max(app.PT_xy_p1(1),app.PT_xy_p2(1))) = true;
+                        app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = logical(double(app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value))).*double(roi_map_previo));
+                    end
+                    roi_vec = suv_corte(app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)));
+                    mean_SUV = mean(roi_vec);
+                    SD_SUV = std(roi_vec);
+                    min_SUV = min(roi_vec);
+                    max_SUV = max(roi_vec);
+                    %
+                    SUVchar = sprintf('%.3f',mean_SUV);
+                    SUVSDchar = sprintf('%.3f',SD_SUV);
+                    SUVSNRchar = sprintf('%.3f',(mean_SUV)/(SD_SUV));
+                    SUVCOVchar = sprintf('%.3f',100*(SD_SUV)/(mean_SUV));
+                    SUVUIchar = sprintf('%.3f',(max_SUV-min_SUV)/(max_SUV+min_SUV));
+                    app.SUVMEANLabel.Text = ['SUV_MEAN = ',SUVchar,char(177),SUVSDchar];
+                    SUVchar = sprintf('%.3f',max(roi_vec));
+                    app.SUVMAXLabel.Text = ['SUV_MAX = ',SUVchar];
+                    app.COVLabel.Text = ['COV = ',SUVCOVchar,'%'];
+                    app.SRNLabel.Text = ['SNR = ',SUVSNRchar];
+                    app.UILabel.Text = ['IU = ',SUVUIchar];
+                    
                 elseif app.CircularButton.Value == 1 && app.roi_activated 
                     roi_map_previo = zeros(size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,1)),'logical');
                     tam = size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,1));
@@ -512,14 +616,28 @@ classdef main3_1 < matlab.apps.AppBase
                     app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roi_map_previo;
                     %%
                     roi_vec = suv_corte(app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)));
-                    SUVchar = sprintf('%.2f',mean(roi_vec));
-                    SUVSDchar = sprintf('%.2f',std(roi_vec));
+                    mean_SUV = mean(roi_vec);
+                    SD_SUV = std(roi_vec);
+                    min_SUV = min(roi_vec);
+                    max_SUV = max(roi_vec);
+                    %
+                    SUVchar = sprintf('%.3f',mean_SUV);
+                    SUVSDchar = sprintf('%.3f',SD_SUV);
+                    SUVSNRchar = sprintf('%.3f',(mean_SUV)/(SD_SUV));
+                    SUVCOVchar = sprintf('%.3f',100*(SD_SUV)/(mean_SUV));
+                    SUVUIchar = sprintf('%.3f',(max_SUV-min_SUV)/(max_SUV+min_SUV));
                     app.SUVMEANLabel.Text = ['SUV_MEAN = ',SUVchar,char(177),SUVSDchar];
-                    SUVchar = sprintf('%.2f',max(roi_vec));
+                    SUVchar = sprintf('%.3f',max(roi_vec));
                     app.SUVMAXLabel.Text = ['SUV_MAX = ',SUVchar];
+                    app.COVLabel.Text = ['COV = ',SUVCOVchar,'%'];
+                    app.SRNLabel.Text = ['SNR = ',SUVSNRchar];
+                    app.UILabel.Text = ['IU = ',SUVUIchar];
                 elseif app.NingunaButton.Value == 1
                     app.SUVMEANLabel.Visible = "off";
                     app.SUVMAXLabel.Visible = "off";
+                    app.COVLabel.Visible = "off";
+                    app.UILabel.Visible = "off";
+                    app.SRNLabel.Visible = "off";
                 end
             end
     end
@@ -556,8 +674,10 @@ classdef main3_1 < matlab.apps.AppBase
         % Button pushed function: CorrerButton
         function CorrerButtonPushed(app, event)
             %drawnow nocallbacks
-            %pause(1)
-            %drawnow nocallbacks
+            app.CerrarButton_2.Enable = "off";
+            app.PositroniumButton.Enable = "off";
+            pause(1)
+            drawnow nocallbacks
             if app.running
                 app.running = not(app.running);
                 drawnow limitrate
@@ -580,35 +700,44 @@ classdef main3_1 < matlab.apps.AppBase
                 app.outputTextArea.Value =  app.output; drawnow limitrate
                 for n = 1:app.num_estudios
                     if app.ct_info.("estudio_" + num2str(n)).PixelSpacing(1)*app.ct_info.("estudio_" + num2str(n)).Height > app.pt_info.("estudio_" + num2str(n)).PixelSpacing(1)*app.pt_info.("estudio_" + num2str(n)).Height
+                        % cuando la imagen CT es mayor espacialmente que la img PET
+                        % app.ct_info.ReconstructionTargetCenterPatient(1) > app.ct_info.ImagePositionPatient(1)
                         ct_edges_p1 = [app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1),app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2)];
                         ct_edges_p2 = [2*app.ct_info.("estudio_" + num2str(n)).ReconstructionTargetCenterPatient(1)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1),2*app.ct_info.("estudio_" + num2str(n)).ReconstructionTargetCenterPatient(2)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2)];
                         %
                         app.pt_edges_pixel.("estudio_" + num2str(n)) = round([(ct_edges_p1(2)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.ct_info.("estudio_" + num2str(n)).PixelSpacing(2),(ct_edges_p2(2)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.ct_info.("estudio_" + num2str(n)).PixelSpacing(2)...
                             (ct_edges_p1(1)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.ct_info.("estudio_" + num2str(n)).PixelSpacing(1),(ct_edges_p2(1)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.ct_info.("estudio_" + num2str(n)).PixelSpacing(1)]+1);
-                        app.SUV_pt.("estudio_" + num2str(n)) = SUVolume(app, app.pt_volume.("estudio_" + num2str(n)), ...
-                                                                 app.pt_info.("estudio_" + num2str(n)),pt_RescaleSlope.("estudio_" + num2str(n)),app.pt_time.("estudio_" + num2str(n)),app.factor_decaimiento.("estudio_" + num2str(n)),app.cortes);
-                        app.ct_edges_on.("estudio_" + num2str(n)) = 1;
+                        %
+                        app.ct_edges_on = 1;
                     else
                         if app.ct_info.("estudio_" + num2str(n)).ReconstructionTargetCenterPatient(1) > app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(1)
                             ct_edges_p1 = [app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(1),app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(2)];
                             ct_edges_p2 = [2*app.ct_info.("estudio_" + num2str(n)).ReconstructionTargetCenterPatient(1)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(1),2*app.ct_info.("estudio_" + num2str(n)).ReconstructionTargetCenterPatient(2)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(2)];
+                            %
                             app.pt_edges_pixel.("estudio_" + num2str(n)) = round([(ct_edges_p1(2)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(2),(ct_edges_p2(2)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(2)...
-                                (ct_edges_p1(1)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(1),...
-                                (ct_edges_p2(1)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(1)]+1);
+                                (ct_edges_p1(1)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(1),(ct_edges_p2(1)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(1)]+1);
+                            %
                         else
                             ct_edges_p1 = [app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(1),app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(2)];
                             ct_edges_p2 = [2*app.ct_info.("estudio_" + num2str(n)).ReconstructionTargetCenterPatient(1)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(1),2*app.ct_info.("estudio_" + num2str(n)).ReconstructionTargetCenterPatient(2)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(2)];
-                            app.pt_edges_pixel.("estudio_" + num2str(n)) = round([(-ct_edges_p2(2)+app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(2),(-ct_edges_p1(2)+app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(2)...
+                            app.pt_edges_pixel = round([(-ct_edges_p2(2)+app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(2),(-ct_edges_p1(2)+app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(2)...
                                 (-ct_edges_p1(1)+app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(1),(-ct_edges_p2(1)+app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(1)]+1);
                         end
-                        app.pt_volume.("estudio_" + num2str(n)) = app.pt_volume.("estudio_" + num2str(n))(app.pt_edges_pixel.("estudio_" + num2str(n))(1):app.pt_edges_pixel.("estudio_" + num2str(n))(2),app.pt_edges_pixel.("estudio_" + num2str(n))(3):app.pt_edges_pixel.("estudio_" + num2str(n))(4),:);
-                        app.SUV_pt.("estudio_" + num2str(n)) = SUVolume(app, app.pt_volume.("estudio_" + num2str(n)),app.pt_info.("estudio_" + num2str(n)),pt_RescaleSlope.("estudio_" + num2str(n)),app.pt_time.("estudio_" + num2str(n)),app.factor_decaimiento.("estudio_" + num2str(n)),app.cortes);
                     end
-                    %ct_edges.("estudio_" + num2str(n)) = [app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(1),2*app.ct_info.("estudio_" + num2str(n)).ReconstructionTargetCenterPatient(1)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(1),...
-                    %    app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(2),2*app.ct_info.("estudio_" + num2str(n)).ReconstructionTargetCenterPatient(2)-app.ct_info.("estudio_" + num2str(n)).ImagePositionPatient(2)];
-                    %app.pt_edges_pixel.("estudio_" + num2str(n)) = round([(ct_edges.("estudio_" + num2str(n))(3)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(2),(ct_edges.("estudio_" + num2str(n))(4)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(2))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(2)...
-                    %    (ct_edges.("estudio_" + num2str(n))(1)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(1),(ct_edges.("estudio_" + num2str(n))(2)-app.pt_info.("estudio_" + num2str(n)).ImagePositionPatient(1))/app.pt_info.("estudio_" + num2str(n)).PixelSpacing(1)]+1);
-                    
+                    if not(app.ct_edges_on)
+                        app.pt_volume.("estudio_" + num2str(n)) = app.pt_volume.("estudio_" + num2str(n))(app.pt_edges_pixel.("estudio_" + num2str(n))(1):app.pt_edges_pixel.("estudio_" + num2str(n))(2),app.pt_edges_pixel.("estudio_" + num2str(n))(3):app.pt_edges_pixel.("estudio_" + num2str(n))(4),:);
+                    else
+                        pause(0.2)
+                        app.output = "[!] Volumen CT corregido"+newline+app.output;
+                        app.outputTextArea.Value =  app.output;
+                        drawnow('limitrate')
+                        app.ct_volume.("estudio_" + num2str(n)) = app.ct_volume.("estudio_" + num2str(n))(app.pt_edges_pixel.("estudio_" + num2str(n))(1):app.pt_edges_pixel.("estudio_" + num2str(n))(2),app.pt_edges_pixel.("estudio_" + num2str(n))(3):app.pt_edges_pixel.("estudio_" + num2str(n))(4),:);
+                    end
+                    app.SUV_pt.("estudio_" + num2str(n)) = SUVolume(app, app.pt_volume.("estudio_" + num2str(n)), app.pt_info.("estudio_" + num2str(n)),pt_RescaleSlope.("estudio_" + num2str(n)),app.pt_time.("estudio_" + num2str(n)),app.cortes);
+                    pause(0.2)
+                    app.output = "[OK] SUV calculado correctamente."+newline+app.output;
+                    app.outputTextArea.Value =  app.output;
+                    drawnow('limitrate')
                 end
 
                 app.WW=app.ct_info.("estudio_" + num2str(1)).WindowWidth(1);
@@ -621,6 +750,11 @@ classdef main3_1 < matlab.apps.AppBase
                     %
                 end
                 app.global_max_SUV = max(max_suv);
+                %%
+                app.MaxSUVSlider.Enable = "on";
+                app.MaxSUVSlider.Limits = [0, app.global_max_SUV + 0.5*app.global_max_SUV];
+                app.MaxSUVSlider.Value = app.global_max_SUV;
+                %%
                 app.output = "[OK] SUV calculado correctamente."+newline+app.output;
                 app.outputTextArea.Value =  app.output; drawnow limitrate
                 for n = 1:app.num_estudios
@@ -656,7 +790,7 @@ classdef main3_1 < matlab.apps.AppBase
                 componentes_on_off(app,"on")
                 
                 %%
-                
+                app.AplicarButton.Enable = "on";
                 draw_figs(app,1,1)
             else
                 main3
@@ -681,6 +815,14 @@ classdef main3_1 < matlab.apps.AppBase
             
         end
 
+        % Value changed function: MaxSUVSlider
+        function MaxSUVSliderValueChanged(app, event)
+            app.global_max_SUV = app.MaxSUVSlider.Value;
+            gen_mean_SUV_info(app)
+            draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
+            app.cambiar_x_y = false;
+        end
+
         % Value changed function: SeleccioneDropDown
         function SeleccioneDropDownValueChanged(app, event)
             value = app.SeleccioneDropDown.Value;
@@ -699,8 +841,9 @@ classdef main3_1 < matlab.apps.AppBase
         function VisualizacinButtonGroupSelectionChanged(app, event)
             %selectedButton = app.VisualizacinButtonGroup.SelectedObject;
             %selectedButton
-            draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
             gen_mean_SUV_info(app)
+            draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
+            
         end
 
         % Selection changed function: SeleccindeROIButtonGroup
@@ -712,7 +855,7 @@ classdef main3_1 < matlab.apps.AppBase
             app.cambiar_x_y = false;
             delete([app.PT_p1,app.PT_p2,app.roi_fig])
             %a la gráfica de fusión
-            app.roi_activated = false;
+            %app.roi_activated = false;
             app.FX1FY1Label.Visible = "off";
             app.FX2FY2Label.Visible = "off";
             app.SUVMEANLabel.Visible = "off";
@@ -731,24 +874,24 @@ classdef main3_1 < matlab.apps.AppBase
             app.ErosionarButton.Enable = "off";
             app.DilatarButton.Enable="off";
             if app.SegmentadoCTButton.Value == 1
-                    app.ROIlowEditField.Value = -20;% -app.WW/2+app.WL;
-                    app.ROIhightEditField.Value = 20;%app.WW/2+app.WL;
-                    app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
-                    gen_mean_SUV_info(app)
+                    app.ROIlowEditField.Value = -150;
+                    app.ROIhightEditField.Value = 150;
+                    %app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
+                    %gen_mean_SUV_info(app)
             elseif app.SegmentadoPETButton.Value == 1
                     app.ROIlowEditField.Value = round(0.8*double(app.pt_info.("estudio_" + num2str(app.SeleccioneDropDown.Value)).LargestImagePixelValue));
                     app.ROIhightEditField.Value = double(app.pt_info.("estudio_" + num2str(app.SeleccioneDropDown.Value)).LargestImagePixelValue);
                     app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roicolor(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.SeleccioneDropDown.Value),app.ROIlowEditField.Value,app.ROIhightEditField.Value);
-                    gen_mean_SUV_info(app)
+                    %gen_mean_SUV_info(app)
             elseif app.SegmentadoSUVButton.Value == 1 
                     app.ROIlowEditField.Value = 0.8*app.global_max_SUV;
                     app.ROIhightEditField.Value = app.global_max_SUV;
                     app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = roicolor(app.SUV_pt.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.SeleccioneDropDown.Value),app.ROIlowEditField.Value,app.ROIhightEditField.Value);
-                    gen_mean_SUV_info(app)
-            elseif app.RectangularButton.Value == 1 || app.CircularButton.Value == 1
-                gen_mean_SUV_info(app)
+                    %gen_mean_SUV_info(app)
+            %elseif app.RectangularButton.Value == 1 || app.CircularButton.Value == 1 || app.SegmentadoCTButton.Value == 1
+            %    gen_mean_SUV_info(app)
             end
-            if app.SegmentadoCTButton.Value == 1 || app.SegmentadoPETButton.Value ==1 || app.SegmentadoSUVButton.Value == 1
+            if app.SegmentadoPETButton.Value ==1 || app.SegmentadoSUVButton.Value == 1
                 % roi segmentation
                 app.ROIlowEditField.Enable = "on";
                 app.ROIhightEditField.Enable ="on";
@@ -761,7 +904,7 @@ classdef main3_1 < matlab.apps.AppBase
                 app.ErosionarButton.Enable = "on";
                 app.DilatarButton.Enable="on";
             end
-            if app.CircularButton.Value == 1 || app.RectangularButton.Value == 1
+            if app.CircularButton.Value == 1 || app.RectangularButton.Value == 1 || app.SegmentadoCTButton.Value == 1
                     app.HerramientasDropDown.Enable = "off";
                     app.SUV0000Label.Visible = "off";
                     app.XXXYYYLabel.Visible="off";
@@ -774,14 +917,15 @@ classdef main3_1 < matlab.apps.AppBase
                     delete(app.pt_crosshair)
                     app.HerramientasDropDown.Value = 1;
             end
+
             gen_mean_SUV_info(app)
             draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
-            
+
         end
 
         % Button down function: UIAxes
         function UIAxesButtonDown(app, event)
-                if app.NingunaButton.Value == 0 && app.SegmentadoCTButton.Value == 0 && app.SegmentadoPETButton.Value == 0
+                if app.NingunaButton.Value == 0 && app.SegmentadoSUVButton.Value == 0 && app.SegmentadoPETButton.Value == 0
                     %%
                     app.Fig_point_created = true;
                     app.roi_state = not(app.roi_state);
@@ -794,10 +938,9 @@ classdef main3_1 < matlab.apps.AppBase
                         app.PT_xy_p2 = [x,y];
                     end
                     app.cambiar_x_y = true;
-                    %app.crosshair_fig = get_crosshair(app,x,y);
                     gen_mean_SUV_info(app)
-                    %lines_and_info(app,app.CorteSlider.Value)
                     draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
+                
                 end
                 if app.HerramientasDropDown.Value ==  2
                     app.rule_state = not(app.rule_state);
@@ -827,10 +970,9 @@ classdef main3_1 < matlab.apps.AppBase
                         end
                      lines_and_info(app,app.CorteSlider.Value)
                      draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
-                end
-                
-                %draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
-
+                end                
+                gen_mean_SUV_info(app)
+                draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
         end
 
         % Value changed function: HerramientasDropDown
@@ -858,9 +1000,8 @@ classdef main3_1 < matlab.apps.AppBase
                 app.HUXXXXXXLabel.Visible = "on";
                 lines_and_info(app,app.CorteSlider.Value)
             end
-            if app.HerramientasDropDown.Value == 4
-
-            end
+            %if app.HerramientasDropDown.Value == 4
+            %end
 
             
         end
@@ -897,15 +1038,15 @@ classdef main3_1 < matlab.apps.AppBase
         function VerROICheckBoxValueChanged(app, event)
             app.cambiar_x_y = false;
             if app.VerROICheckBox.Value == 1
-                app.VerVROICheckBox.Value = 0;
+                app.VerVOICheckBox.Value = 0;
             end
             draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
         end
 
-        % Value changed function: VerVROICheckBox
-        function VerVROICheckBoxValueChanged(app, event)
+        % Value changed function: VerVOICheckBox
+        function VerVOICheckBoxValueChanged(app, event)
             app.cambiar_x_y = false;
-            if app.VerVROICheckBox.Value == 1
+            if app.VerVOICheckBox.Value == 1
                 app.VerROICheckBox.Value = 0;
             end
             draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
@@ -914,6 +1055,8 @@ classdef main3_1 < matlab.apps.AppBase
 
         % Button pushed function: ResetsegmentacinButton
         function ResetsegmentacinButtonPushed(app, event)
+            app.roi_CT_selected_state = false;
+            % 
             app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = ones(size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,1)),'logical');
             if app.SegmentadoCTButton.Value == 1
                     app.ROIlowEditField.Value = -app.WW/2+app.WL;
@@ -936,6 +1079,8 @@ classdef main3_1 < matlab.apps.AppBase
 
         % Value changed function: ROIlowEditField
         function ROIlowEditFieldValueChanged(app, event)
+           app.roi_CT_selected_state = false;
+           % 
            app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = ones(size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,1)),'logical');
            app.CT_resized = imresize(app.ct_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value),size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value)));
            if app.SegmentadoCTButton.Value == 1
@@ -951,6 +1096,8 @@ classdef main3_1 < matlab.apps.AppBase
 
         % Value changed function: ROIhightEditField
         function ROIhightEditFieldValueChanged(app, event)
+           app.roi_CT_selected_state = false;
+           % 
            app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = ones(size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,1)),'logical');
            app.CT_resized = imresize(app.ct_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value),size(app.pt_volume.("estudio_" + num2str(app.SeleccioneDropDown.Value))(:,:,app.CorteSlider.Value)));
            if app.SegmentadoCTButton.Value == 1
@@ -967,6 +1114,8 @@ classdef main3_1 < matlab.apps.AppBase
 
         % Value changed function: DeteccindebordeDropDown
         function DeteccindebordeDropDownValueChanged(app, event)
+            app.roi_CT_selected_state = false;
+            % 
             app.cambiar_x_y = false;
             draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value) 
             
@@ -974,6 +1123,8 @@ classdef main3_1 < matlab.apps.AppBase
 
         % Button pushed function: DilatarButton
         function DilatarButtonPushed2(app, event)
+            app.roi_CT_selected_state = false;
+            % 
             estruc = strel(char(app.OpmofolgicaDropDown.Items(app.OpmofolgicaDropDown.Value)),app.RadiomorfEditField.Value);
             app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = imdilate(app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)),estruc);
             gen_mean_SUV_info(app)
@@ -983,7 +1134,9 @@ classdef main3_1 < matlab.apps.AppBase
 
         % Button pushed function: ErosionarButton
         function ErosionarButtonPushed2(app, event)
-            estruc = strel(char(app.OpmofolgicaDropDown.Items(app.OpmofolgicaDropDown.Value)),app.RadiomorfEditField.Value);
+           app.roi_CT_selected_state = false;
+           % 
+           estruc = strel(char(app.OpmofolgicaDropDown.Items(app.OpmofolgicaDropDown.Value)),app.RadiomorfEditField.Value);
            app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)) = imerode(app.roi_map.("estudio_" + num2str(app.SeleccioneDropDown.Value)),estruc);
            gen_mean_SUV_info(app)
            draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value) 
@@ -1008,14 +1161,15 @@ classdef main3_1 < matlab.apps.AppBase
                 for n = 1:app.num_estudios
                    for m = 1:app.cortes
                        if app.SegmentadoCTButton.Value == 1
-                            CT_r = imresize(app.ct_volume.("estudio_" + num2str(n))(:,:,m),[app.pt_edges_pixel.("estudio_" + num2str(n))(2)-app.pt_edges_pixel.("estudio_" + num2str(n))(1)+1,app.pt_edges_pixel.("estudio_" + num2str(n))(4)-app.pt_edges_pixel.("estudio_" + num2str(n))(3)+1]);
+                           %app.pt_edges_pixel.("estudio_" + num2str(n))(2)-app.pt_edges_pixel.("estudio_" + num2str(n))(1)+1,app.pt_edges_pixel.("estudio_" + num2str(n))(4)-app.pt_edges_pixel.("estudio_" + num2str(n))(3)+1
+                            CT_r = imresize(app.ct_volume.("estudio_" + num2str(n))(:,:,m),size(app.pt_volume.("estudio_" + num2str(n))(:,:,m)));
                             app.roi_volume.("estudio_" + num2str(n))(:,:,m) = roicolor(CT_r,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
-                       elseif app.SegmentadoPETButton.Value == 1
+                       elseif app.SegmentadoPETButton.Value == 1 
                             app.roi_volume.("estudio_" + num2str(n))(:,:,m) = roicolor(app.pt_volume.("estudio_" + num2str(n))(:,:,m),app.ROIlowEditField.Value,app.ROIhightEditField.Value);
                        elseif app.SegmentadoSUVButton.Value == 1
                             app.roi_volume.("estudio_" + num2str(n))(:,:,m) = roicolor(app.SUV_pt.("estudio_" + num2str(n))(:,:,m),app.ROIlowEditField.Value,app.ROIhightEditField.Value);
                        end
-                   end
+                   end 
                 end
                 ciclos = length(app.SegEditField.Value(2:end))/5;
                 if not(ciclos ~= floor(ciclos))
@@ -1056,16 +1210,19 @@ classdef main3_1 < matlab.apps.AppBase
                     app.output = "[X] Revise su cadena. [Error 01]"+newline+app.output;
                     app.outputTextArea.Value =  app.output; drawnow limitrate
                 end
-                app.VolumenROIButton.Enable = "on";
-                app.VerVROICheckBox.Enable = "on";
-                app.VerVROICheckBox.Value = 1; app.VerROICheckBox.Value = 0;
+                app.VOIButton.Enable = "on";
+                app.VerVOICheckBox.Enable = "on";
+                app.VerVOICheckBox.Value = 1; app.VerROICheckBox.Value = 0;
                 app.output = "[OK] Volumen ROI construido"+newline+app.output;
                 app.outputTextArea.Value =  app.output; drawnow limitrate
+                app.ResultadosButton.Enable = "on";
             else
                 app.output = "[X] Código SEG. no compatible."+newline+app.output;
                 app.outputTextArea.Value =  app.output; drawnow limitrate
             end
-            
+            gen_mean_SUV_info(app)
+            draw_figs(app,app.CorteSlider.Value,app.SeleccioneDropDown.Value)
+            app.cambiar_x_y = false;
             
         end
 
@@ -1095,7 +1252,7 @@ classdef main3_1 < matlab.apps.AppBase
             hold(app.UIAxes2,"on")
             %app.
             Legends=cell(app.num_estudios,1);
-            ylim(app.UIAxes2,[0,1.1])
+            %ylim(app.UIAxes2,[0,1.1])
             for n = 1:app.num_estudios
                 %app.perfil_plot.("estudio_" + num2str(n))=
                 errorbar(app.UIAxes2,1:app.cortes,app.suv_results.("estudio_" + num2str(n))(1,:),app.suv_results.("estudio_" + num2str(n))(2,:),'-',"HitTest","off");
@@ -1104,8 +1261,163 @@ classdef main3_1 < matlab.apps.AppBase
                     2.7027027027027*10^(-8)),' mCi'];
             end
             legend(app.UIAxes2,Legends);
-
+            app.GuardarButton_2.Enable = "on";
             
+        end
+
+        % Button pushed function: GuardarButton
+        function GuardarButtonPushed(app, event)
+            app.output = "[...] Intentando guardar imagen"+newline+app.output;
+            app.outputTextArea.Value =  app.output; drawnow limitrate
+            directorio_guardado = uigetdir(userpath);
+            
+            if directorio_guardado == 0
+                app.output = "[X] Guardado cancelado"+newline+app.output;
+                app.outputTextArea.Value =  app.output; drawnow limitrate
+            else 
+                imwrite(app.fused,fullfile(directorio_guardado,['estudio_' num2str(app.SeleccioneDropDown.Value) 'corte_' ...
+                  num2str(app.CorteSlider.Value) '.png']));
+                app.output = "[OK] Imagen guardada"+newline+app.output;
+                app.outputTextArea.Value =  app.output; drawnow limitrate
+            end
+        end
+
+        % Button pushed function: GuardarButton_2
+        function GuardarButton_2Pushed(app, event)
+            app.output = "[...] Generando reporte XLSX"+newline+app.output;
+            app.outputTextArea.Value =  app.output; drawnow limitrate
+            directorio_guardado = uigetdir(userpath);
+            if directorio_guardado == 0
+                app.output = "[X] Operación cancelada"+newline+app.output;
+                app.outputTextArea.Value =  app.output; drawnow limitrate
+            else 
+                tabla_header = {'SUV100mean','SUV90mean','SUV80mean','SUV50mean','SUV10mean',...
+                    'SUV100SD', 'SUV90SD','SUV80SD','SUV50SD','SUV10SD',...
+                    'SUV100max', 'SUV90max','SUV80max','SUV50max','SUV10max',...
+                    'SUV100min', 'SUV90min','SUV80min','SUV50min','SUV10min',...
+                    'bSUV100mean','bSUV90mean','bSUV80mean','bSUV50mean','bSUV10mean',...
+                    'bSUV100SD', 'bSUV90SD','bSUV80SD','bSUV50SD','bSUV10SD',...
+                    'bSUV100max', 'bSUV90max','bSUV80max','bSUV50max','bSUV10max',...
+                    'bSUV100min', 'bSUV90min','bSUV80min','bSUV50min','bSUV10min',...
+                    'No.Pixels_100','No.Pixels_90','No.Pixels_80','No.Pixels_50','No.Pixels_10',...
+                    'SUV100max5v', 'SUV90max5v','SUV80max5v','SUV50max5v','SUV10max5v',...
+                    'SUV100min5v', 'SUV90min5v','SUV80min5v','SUV50min5v','SUV10min5v'};
+                num_header = length(tabla_header);
+                %%
+                % creamos un folder en directorio_guardado
+                resultados_dir = ['resultados_positronium_',char(datetime('now','TimeZone','local','Format','d_MMM_y_HH_mm_ss_ms'))];
+                mkdir(fullfile(directorio_guardado,resultados_dir));
+                rs = [1, 0.9, 0.8,0.5,0.1];
+                %
+                for n_estudio = 1:app.num_estudios
+                    estudios_dir2 = ['estudio_',int2str(n_estudio)];
+                    mkdir(fullfile(directorio_guardado,resultados_dir,estudios_dir2));
+                    info_cell = cell(2,num_header);
+                    %%
+                    info_cell(1,1) = {'Dosis'};info_cell(1,2) = {sprintf('%.3f',app.pt_info.("estudio_" + num2str(n_estudio)).RadiopharmaceuticalInformationSequence.Item_1.RadionuclideTotalDose* ...
+                    2.7027027027027*10^(-8))};
+                    info_cell(2,1) = {'Tdis'};info_cell(2,2) = {'Valor'};
+                    %
+                    info_cell(1,3) = {'PixelSpacing_X'};info_cell(1,4) = {sprintf('%.5f',app.pt_info.("estudio_" + num2str(n_estudio)).PixelSpacing(1))};
+                    info_cell(2,3) = {'PixelSpacing_Y'};info_cell(2,4) = {sprintf('%.5f',app.pt_info.("estudio_" + num2str(n_estudio)).PixelSpacing(2))};
+                    info_cell(2,5) = {'SliceT'};info_cell(2,6) = {sprintf('%.5f',app.pt_info.("estudio_" + num2str(n_estudio)).SliceThickness)};
+                    %%
+                    tam = size(app.SUV_pt.("estudio_" + num2str(n_estudio))(:,:,1));
+                    [xe,ye] = meshgrid(1:tam(2),1:tam(1));
+                    all_data = cell(app.cortes,num_header);
+                    for n_corte = 1:app.cortes
+                        mapa_ROI = app.roi_volume.("estudio_" + num2str(n_estudio));
+                        borde_roi = edge(mapa_ROI(:,:,n_corte),"canny");
+                        [y, x] = find(borde_roi == 1);
+                        if isempty(x)
+                            x = round(tam(2)/4):round(3*tam(2)/4);
+                            y = round([linspace(tam(2)/2,tam(2)/4,round(tam(2)/4)),linspace(tam(2)/2,tam(2)/4,round(tam(2)/4))]);
+                        end
+                        x1 = x(1); y1 = y(1);
+                        x2 = x(round(length(x)/2)); y2 = y(round(length(y)/2));
+                        x3 = x(end); y3 = y(end);
+                        A = [ 2*x1 2*y1 1;2*x2 2*y2 1;2*x3 2*y3 1];
+                        B = [-(x1^2 + y1^2); -(x2^2 + y2^2); -(x3^2 + y3^2)];
+                        X = linsolve(A,B);
+                        xc = -X(1); yc = -X(2); r = sqrt(xc^2 + yc^2 - X(3));
+                        CT_img = app.ct_volume.("estudio_" + num2str(n_estudio));
+                        CT_img = imresize(CT_img(:,:,n_corte),tam);
+                        PT =app.SUV_pt.("estudio_" + num2str(n_estudio));
+                        PT = ind2rgb(uint8(256*PT(:,:,n_corte)/(1.3)), jet(256));
+                        CT = ind2rgb(int64(CT_img-(app.WL-app.WW/2)), gray(app.WW));
+                        fusion_img = CT*0.5 + PT*(0.5);
+                        fusion_img = im2uint8(fusion_img);
+                        for n_radio = 1:1:length(rs)
+                            r_caso = r*sqrt(rs(n_radio));
+                            roi_map_estudio = zeros(tam,'logical');
+                            roi_map_estudio(sqrt((xe-xc).^2+(ye-yc).^2)<=r_caso) = true;
+                            SUVROI_IMG = app.SUV_pt.("estudio_" + num2str(n_estudio))(:,:,n_corte);
+                            SUVROI = SUVROI_IMG(roi_map_estudio);
+                            bSUVROI = SUVROI_IMG(not(roi_map_estudio));
+                            if length(SUVROI) >= 5
+                                sortSUV = sort(SUVROI, 'descend');
+                                top_5_SUVmax_values = sortSUV(1:5);
+                                sortSUV = sort(SUVROI, 'ascend');
+                                top_5_SUVmin_values = sortSUV(1:5);
+                            else
+                                sortSUV = zeros(1,10);
+                                top_5_SUVmax_values = sortSUV(1:5);
+                                sortSUV = zeros(1,10);
+                                top_5_SUVmin_values = sortSUV(1:5);
+                            end
+                            %%
+                            if isempty(SUVROI) || isempty(bSUVROI)
+                                all_data(n_corte,0*5+n_radio) = {0};
+                                all_data(n_corte,1*5+n_radio) = {0};
+                                all_data(n_corte,2*5+n_radio) = {0};
+                                all_data(n_corte,3*5+n_radio) = {0};
+                                all_data(n_corte,4*5+n_radio) = {0};
+                                all_data(n_corte,5*5+n_radio) = {0};
+                                all_data(n_corte,6*5+n_radio) = {0};
+                                all_data(n_corte,7*5+n_radio) = {0};
+                                all_data(n_corte,8*5+n_radio) = {0};
+                                all_data(n_corte,9*5+n_radio) = {0};
+                                all_data(n_corte,10*5+n_radio) = {0};
+                            else
+                                all_data(n_corte,0*5+n_radio) = {mean(SUVROI)};
+                                all_data(n_corte,1*5+n_radio) = {std(SUVROI)};
+                                all_data(n_corte,2*5+n_radio) = {max(SUVROI)};
+                                all_data(n_corte,3*5+n_radio) = {min(SUVROI)};
+                                all_data(n_corte,4*5+n_radio) = {mean(bSUVROI)};
+                                all_data(n_corte,5*5+n_radio) = {std(bSUVROI)};
+                                all_data(n_corte,6*5+n_radio) = {max(bSUVROI)};
+                                all_data(n_corte,7*5+n_radio) = {min(bSUVROI)};
+                                all_data(n_corte,8*5+n_radio) = {length(SUVROI)};
+                                all_data(n_corte,9*5+n_radio) = {mean(top_5_SUVmax_values)};
+                                all_data(n_corte,10*5+n_radio) = {mean(top_5_SUVmin_values)};
+                                matriz_amarilla = zeros(tam(1),tam(2),3,'uint8');matriz_amarilla(:,:,1) = 255;matriz_amarilla(:,:,2) = 255;
+                                borde_roi_2 = edge(roi_map_estudio,"canny");
+                                fusion_img = uint8(not(borde_roi_2)).*fusion_img;
+                                matriz_amarilla = uint8(borde_roi_2).*matriz_amarilla;
+                                fusion_img = fusion_img + matriz_amarilla;
+                            end
+                        end
+                        imwrite(fusion_img,fullfile(directorio_guardado,resultados_dir,estudios_dir2,['estudio',int2str(n_estudio), '_corte_',int2str(n_corte),'.png']))
+                    end
+                    output_matrix=[info_cell;tabla_header; all_data];
+                    writecell(output_matrix,fullfile(directorio_guardado,resultados_dir,'reporte.xlsx'),'Sheet',['estudio',int2str(n_estudio)]);    
+                end
+                %%
+                app.output = "[OK] Reporte generado"+newline+app.output;
+                app.outputTextArea.Value =  app.output; drawnow limitrate
+            end
+            
+        end
+
+        % Button pushed function: CerrarButton_2
+        function CerrarButton_2Pushed(app, event)
+            app.delete;
+        end
+
+        % Button pushed function: PositroniumButton
+        function PositroniumButtonPushed(app, event)
+            main0
+            app.delete;
         end
     end
 
@@ -1128,7 +1440,7 @@ classdef main3_1 < matlab.apps.AppBase
             % Create UIAxes2
             app.UIAxes2 = uiaxes(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
             title(app.UIAxes2, 'SUV promedio por corte')
-            xlabel(app.UIAxes2, 'Cortes')
+            xlabel(app.UIAxes2, 'Corte')
             ylabel(app.UIAxes2, 'SUV_{mean}')
             zlabel(app.UIAxes2, 'Z')
             app.UIAxes2.XGrid = 'on';
@@ -1148,19 +1460,21 @@ classdef main3_1 < matlab.apps.AppBase
             app.CorrerButton.ButtonPushedFcn = createCallbackFcn(app, @CorrerButtonPushed, true);
             app.CorrerButton.Icon = fullfile(pathToMLAPP, 'ico', 'run.png');
             app.CorrerButton.Enable = 'off';
-            app.CorrerButton.Position = [725 11 100 23];
+            app.CorrerButton.Position = [751 11 86 23];
             app.CorrerButton.Text = 'Correr';
 
             % Create CerrarButton_2
             app.CerrarButton_2 = uibutton(app.PositroniumdotMATMododeanlisisconjunto2UIFigure, 'push');
+            app.CerrarButton_2.ButtonPushedFcn = createCallbackFcn(app, @CerrarButton_2Pushed, true);
             app.CerrarButton_2.Icon = fullfile(pathToMLAPP, 'ico', 'icon_close.png');
-            app.CerrarButton_2.Position = [836 11 100 23];
+            app.CerrarButton_2.Position = [840 11 100 23];
             app.CerrarButton_2.Text = 'Cerrar';
 
             % Create PositroniumButton
             app.PositroniumButton = uibutton(app.PositroniumdotMATMododeanlisisconjunto2UIFigure, 'push');
+            app.PositroniumButton.ButtonPushedFcn = createCallbackFcn(app, @PositroniumButtonPushed, true);
             app.PositroniumButton.Icon = fullfile(pathToMLAPP, 'ico', 'positronium_ico_small.jpg');
-            app.PositroniumButton.Position = [610 11 100 23];
+            app.PositroniumButton.Position = [540 11 100 23];
             app.PositroniumButton.Text = 'Positronium';
 
             % Create vidamediaLabel
@@ -1175,14 +1489,14 @@ classdef main3_1 < matlab.apps.AppBase
             app.Button = uibutton(app.PositroniumdotMATMododeanlisisconjunto2UIFigure, 'push');
             app.Button.Icon = fullfile(pathToMLAPP, 'ico', 'plus.png');
             app.Button.Visible = 'off';
-            app.Button.Position = [905 94 31 30];
+            app.Button.Position = [918 107 31 30];
             app.Button.Text = '';
 
             % Create Button_2
             app.Button_2 = uibutton(app.PositroniumdotMATMododeanlisisconjunto2UIFigure, 'push');
             app.Button_2.Icon = fullfile(pathToMLAPP, 'ico', 'minus.png');
             app.Button_2.Visible = 'off';
-            app.Button_2.Position = [888 90 31 30];
+            app.Button_2.Position = [888 108 31 30];
             app.Button_2.Text = '';
 
             % Create Paso_zoomEditFieldLabel
@@ -1260,7 +1574,7 @@ classdef main3_1 < matlab.apps.AppBase
             app.Actividad0Label.FontWeight = 'bold';
             app.Actividad0Label.FontColor = [1 0 0];
             app.Actividad0Label.Visible = 'off';
-            app.Actividad0Label.Position = [979 144 92 22];
+            app.Actividad0Label.Position = [931 144 140 22];
             app.Actividad0Label.Text = 'Actividad0';
 
             % Create FX1FY1Label
@@ -1277,7 +1591,7 @@ classdef main3_1 < matlab.apps.AppBase
             app.SUVMAXLabel.FontWeight = 'bold';
             app.SUVMAXLabel.FontColor = [1 0 1];
             app.SUVMAXLabel.Visible = 'off';
-            app.SUVMAXLabel.Position = [547 183 106 22];
+            app.SUVMAXLabel.Position = [547 183 159 22];
             app.SUVMAXLabel.Text = 'SUV MAX';
 
             % Create SUVMEANLabel
@@ -1303,7 +1617,7 @@ classdef main3_1 < matlab.apps.AppBase
             app.XX1YY1Label.FontWeight = 'bold';
             app.XX1YY1Label.FontColor = [0 1 1];
             app.XX1YY1Label.Visible = 'off';
-            app.XX1YY1Label.Position = [767 162 70 22];
+            app.XX1YY1Label.Position = [727 162 70 22];
             app.XX1YY1Label.Text = '(XX1,YY1)';
 
             % Create DistanciaLabel
@@ -1312,7 +1626,7 @@ classdef main3_1 < matlab.apps.AppBase
             app.DistanciaLabel.FontWeight = 'bold';
             app.DistanciaLabel.FontColor = [1 1 0];
             app.DistanciaLabel.Visible = 'off';
-            app.DistanciaLabel.Position = [820 145 132 22];
+            app.DistanciaLabel.Position = [798 145 132 22];
             app.DistanciaLabel.Text = 'Distancia';
 
             % Create XX2YY2Label
@@ -1321,7 +1635,7 @@ classdef main3_1 < matlab.apps.AppBase
             app.XX2YY2Label.FontWeight = 'bold';
             app.XX2YY2Label.FontColor = [0 1 0];
             app.XX2YY2Label.Visible = 'off';
-            app.XX2YY2Label.Position = [931 162 67 22];
+            app.XX2YY2Label.Position = [861 162 67 22];
             app.XX2YY2Label.Text = '(XX2,YY2)';
 
             % Create SeleccindeROIButtonGroup
@@ -1403,11 +1717,11 @@ classdef main3_1 < matlab.apps.AppBase
             app.FusinButton.Text = 'Fusión';
             app.FusinButton.Position = [100 72 58 22];
 
-            % Create VolumenROIButton
-            app.VolumenROIButton = uiradiobutton(app.VisualizacinButtonGroup);
-            app.VolumenROIButton.Enable = 'off';
-            app.VolumenROIButton.Text = 'Volumen ROI';
-            app.VolumenROIButton.Position = [30 4 93 22];
+            % Create VOIButton
+            app.VOIButton = uiradiobutton(app.VisualizacinButtonGroup);
+            app.VOIButton.Enable = 'off';
+            app.VOIButton.Text = 'VOI';
+            app.VOIButton.Position = [56 6 43 22];
 
             % Create outputTextArea
             app.outputTextArea = uitextarea(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
@@ -1506,8 +1820,8 @@ classdef main3_1 < matlab.apps.AppBase
             app.AlphaCTSlider = uislider(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
             app.AlphaCTSlider.Limits = [0 1];
             app.AlphaCTSlider.ValueChangedFcn = createCallbackFcn(app, @AlphaCTSliderValueChanged, true);
-            app.AlphaCTSlider.Enable = 'off';
             app.AlphaCTSlider.FontSize = 9;
+            app.AlphaCTSlider.Enable = 'off';
             app.AlphaCTSlider.Position = [338 541 119 3];
             app.AlphaCTSlider.Value = 0.5;
 
@@ -1522,15 +1836,15 @@ classdef main3_1 < matlab.apps.AppBase
             app.AlphaPETSlider = uislider(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
             app.AlphaPETSlider.Limits = [0 1];
             app.AlphaPETSlider.ValueChangedFcn = createCallbackFcn(app, @AlphaPETSliderValueChanged, true);
-            app.AlphaPETSlider.Enable = 'off';
             app.AlphaPETSlider.FontSize = 9;
+            app.AlphaPETSlider.Enable = 'off';
             app.AlphaPETSlider.Position = [340 472 116 3];
             app.AlphaPETSlider.Value = 0.5;
 
             % Create HerramientasDropDownLabel
             app.HerramientasDropDownLabel = uilabel(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
             app.HerramientasDropDownLabel.HorizontalAlignment = 'right';
-            app.HerramientasDropDownLabel.Position = [596 103 77 22];
+            app.HerramientasDropDownLabel.Position = [592 115 77 22];
             app.HerramientasDropDownLabel.Text = 'Herramientas';
 
             % Create HerramientasDropDown
@@ -1539,11 +1853,12 @@ classdef main3_1 < matlab.apps.AppBase
             app.HerramientasDropDown.ItemsData = [1 2 3 4 5];
             app.HerramientasDropDown.ValueChangedFcn = createCallbackFcn(app, @HerramientasDropDownValueChanged, true);
             app.HerramientasDropDown.Enable = 'off';
-            app.HerramientasDropDown.Position = [688 103 100 22];
+            app.HerramientasDropDown.Position = [684 115 100 22];
             app.HerramientasDropDown.Value = 1;
 
             % Create GuardarButton
             app.GuardarButton = uibutton(app.PositroniumdotMATMododeanlisisconjunto2UIFigure, 'push');
+            app.GuardarButton.ButtonPushedFcn = createCallbackFcn(app, @GuardarButtonPushed, true);
             app.GuardarButton.Icon = fullfile(pathToMLAPP, 'ico', 'save.png');
             app.GuardarButton.Enable = 'off';
             app.GuardarButton.Position = [798 115 100 23];
@@ -1619,21 +1934,73 @@ classdef main3_1 < matlab.apps.AppBase
             % Create AplicarButton
             app.AplicarButton = uibutton(app.PositroniumdotMATMododeanlisisconjunto2UIFigure, 'push');
             app.AplicarButton.ButtonPushedFcn = createCallbackFcn(app, @AplicarButtonPushed, true);
+            app.AplicarButton.Enable = 'off';
             app.AplicarButton.Position = [267 359 100 23];
             app.AplicarButton.Text = 'Aplicar';
 
-            % Create VerVROICheckBox
-            app.VerVROICheckBox = uicheckbox(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
-            app.VerVROICheckBox.ValueChangedFcn = createCallbackFcn(app, @VerVROICheckBoxValueChanged, true);
-            app.VerVROICheckBox.Enable = 'off';
-            app.VerVROICheckBox.Text = 'Ver VROI';
-            app.VerVROICheckBox.Position = [338 318 73 10];
+            % Create VerVOICheckBox
+            app.VerVOICheckBox = uicheckbox(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
+            app.VerVOICheckBox.ValueChangedFcn = createCallbackFcn(app, @VerVOICheckBoxValueChanged, true);
+            app.VerVOICheckBox.Enable = 'off';
+            app.VerVOICheckBox.Text = 'Ver VOI';
+            app.VerVOICheckBox.Position = [337 312 73 22];
 
             % Create ResultadosButton
             app.ResultadosButton = uibutton(app.PositroniumdotMATMododeanlisisconjunto2UIFigure, 'push');
             app.ResultadosButton.ButtonPushedFcn = createCallbackFcn(app, @ResultadosButtonPushed, true);
+            app.ResultadosButton.Enable = 'off';
             app.ResultadosButton.Position = [384 359 100 23];
             app.ResultadosButton.Text = 'Resultados';
+
+            % Create GuardarButton_2
+            app.GuardarButton_2 = uibutton(app.PositroniumdotMATMododeanlisisconjunto2UIFigure, 'push');
+            app.GuardarButton_2.ButtonPushedFcn = createCallbackFcn(app, @GuardarButton_2Pushed, true);
+            app.GuardarButton_2.Icon = fullfile(pathToMLAPP, 'ico', 'xls.png');
+            app.GuardarButton_2.Enable = 'off';
+            app.GuardarButton_2.Position = [647 11 100 23];
+            app.GuardarButton_2.Text = 'Guardar';
+
+            % Create COVLabel
+            app.COVLabel = uilabel(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
+            app.COVLabel.HorizontalAlignment = 'right';
+            app.COVLabel.FontColor = [1 1 0.0667];
+            app.COVLabel.Visible = 'off';
+            app.COVLabel.Position = [950 591 121 21];
+            app.COVLabel.Text = 'COV';
+
+            % Create SRNLabel
+            app.SRNLabel = uilabel(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
+            app.SRNLabel.HorizontalAlignment = 'right';
+            app.SRNLabel.FontColor = [0 1 0];
+            app.SRNLabel.Visible = 'off';
+            app.SRNLabel.Position = [950 568 119 22];
+            app.SRNLabel.Text = 'SRN';
+
+            % Create UILabel
+            app.UILabel = uilabel(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
+            app.UILabel.HorizontalAlignment = 'right';
+            app.UILabel.FontColor = [0.0588 1 1];
+            app.UILabel.Visible = 'off';
+            app.UILabel.Position = [950 547 119 22];
+            app.UILabel.Text = 'UI';
+
+            % Create MaxSUVSliderLabel
+            app.MaxSUVSliderLabel = uilabel(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
+            app.MaxSUVSliderLabel.HorizontalAlignment = 'right';
+            app.MaxSUVSliderLabel.FontSize = 9;
+            app.MaxSUVSliderLabel.Enable = 'off';
+            app.MaxSUVSliderLabel.Position = [467 547 41 22];
+            app.MaxSUVSliderLabel.Text = 'MaxSUV';
+
+            % Create MaxSUVSlider
+            app.MaxSUVSlider = uislider(app.PositroniumdotMATMododeanlisisconjunto2UIFigure);
+            app.MaxSUVSlider.Limits = [0 1];
+            app.MaxSUVSlider.Orientation = 'vertical';
+            app.MaxSUVSlider.ValueChangedFcn = createCallbackFcn(app, @MaxSUVSliderValueChanged, true);
+            app.MaxSUVSlider.FontSize = 9;
+            app.MaxSUVSlider.Enable = 'off';
+            app.MaxSUVSlider.Position = [472 437 3 105];
+            app.MaxSUVSlider.Value = 1;
 
             % Show the figure after all components are created
             app.PositroniumdotMATMododeanlisisconjunto2UIFigure.Visible = 'on';
@@ -1644,7 +2011,7 @@ classdef main3_1 < matlab.apps.AppBase
     methods (Access = public)
 
         % Construct app
-        function app = main3_1
+        function app = main3_1_exported
 
             % Create UIFigure and components
             createComponents(app)

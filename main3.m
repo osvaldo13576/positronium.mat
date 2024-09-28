@@ -1,4 +1,4 @@
-classdef main3 < matlab.apps.AppBase
+classdef main3_exported < matlab.apps.AppBase
 
     % Properties that correspond to app components
     properties (Access = public)
@@ -237,11 +237,10 @@ classdef main3 < matlab.apps.AppBase
                 num_cortes(n) = length(app.perfiles.("estudio_" + num2str(estudios_tolales(n))));
             end
             valor_corte = min(num_cortes);
-            vec_diferencia = zeros(valor_corte-(app.p2-app.p1),length(estudios_seleccionados));
+            correlacion_pares = zeros(valor_corte-(app.p2-app.p1),length(estudios_seleccionados));
             ya = [0, 0, 1, 1];
             
             for n = 1:length(estudios_seleccionados)
-                
                 for m =  1:(valor_corte-(app.p2-app.p1))
                     delete(app.sec_perfil);delete(app.line1);delete(app.line2);delete(app.selected_curve)
                     x1 = 0+m;
@@ -252,17 +251,18 @@ classdef main3 < matlab.apps.AppBase
                     app.line2=xline(app.UIAxes, x2,'Color',[0,128/255,128/255],'linewidth',1);
                     app.selected_curve = plot(app.UIAxes,x1:x2, app.perfiles.("estudio_" + app.Tree.SelectedNodes.NodeData)(app.p1:app.p2),'-s','Color','g',"HitTest","off");
                     app.sec_perfil = fill(app.UIAxes,xa,ya,'b','FaceAlpha',0.2,'EdgeColor','none');
-                    [~,vec_diferencia(m,n)] = corr(app.perfiles.("estudio_" + num2str(app.Tree.SelectedNodes.NodeData))(app.p1:app.p2), ...
-                        app.perfiles.("estudio_" + num2str(estudios_seleccionados(n)))(x1:x2));
+                    [correlacion_pares(m,n),~] = corr(app.perfiles.("estudio_" + num2str(app.Tree.SelectedNodes.NodeData))(app.p1:app.p2), ...
+                        app.perfiles.("estudio_" + num2str(estudios_seleccionados(n)))(x1:x2),"type","Spearman");
                     legend(app.UIAxes,app.Legends);
                     %pause(0.1)
                     drawnow %nocallbacks
                 end
+                max_corre = max(correlacion_pares(:,n));
+                app.output = "Estidio "+ num2str(estudios_seleccionados(n))+": " + "max(corr) = " + compose("%1.7f",max_corre) + newline+app.output;
+                app.outputTextArea.Value =  app.output;
             end
-            [corre, indice] = min(vec_diferencia);
-            app.output = "Delta x = index-p1 = " + int2str(indice-app.p1) + newline+app.output;
-            app.outputTextArea.Value =  app.output;
-            app.output = "min(corr) = " + compose("%1.7f",corre) + newline+app.output;
+            [~, indice] = max(correlacion_pares);
+            app.output = "Delta x = index-p1 = " + int2str(abs(indice-app.p1)) + newline+app.output;
             app.outputTextArea.Value =  app.output;
             app.output = "Guardando variables..." + newline+app.output;
             app.outputTextArea.Value =  app.output;
@@ -447,7 +447,7 @@ classdef main3 < matlab.apps.AppBase
     methods (Access = public)
 
         % Construct app
-        function app = main3
+        function app = main3_exported
 
             % Create UIFigure and components
             createComponents(app)

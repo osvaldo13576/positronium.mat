@@ -1,8 +1,11 @@
-classdef main2 < matlab.apps.AppBase
+classdef main2_exported < matlab.apps.AppBase
 
     % Properties that correspond to app components
     properties (Access = public)
         PositroniumdotMATMododetomografaUIFigure  matlab.ui.Figure
+        UILabel                       matlab.ui.control.Label
+        SRNLabel                      matlab.ui.control.Label
+        COVLabel                      matlab.ui.control.Label
         flipvolButton                 matlab.ui.control.Button
         nCorteEditField               matlab.ui.control.NumericEditField
         Button_6                      matlab.ui.control.Button
@@ -13,6 +16,7 @@ classdef main2 < matlab.apps.AppBase
         Button_2                      matlab.ui.control.Button
         Button                        matlab.ui.control.Button
         FWHMButtonGroup               matlab.ui.container.ButtonGroup
+        GxlsxCheckBox                 matlab.ui.control.CheckBox
         RefrescarButton               matlab.ui.control.Button
         AjustarejeCheckBox            matlab.ui.control.CheckBox
         NumricoCheckBox               matlab.ui.control.CheckBox
@@ -135,6 +139,7 @@ classdef main2 < matlab.apps.AppBase
         PT_p2;PT_xy_p2
         roi_state = false;
         roi_activated = false;
+        roi_CT_selected_state = true;
         roi_map
         viewROI_true = 0;
         cambiar_x_y = false;
@@ -143,6 +148,7 @@ classdef main2 < matlab.apps.AppBase
         WW
         WL
         %% fwhm
+        ac_cont
         axial_plot
         linea_perfil_px
         fwhm_fig
@@ -256,22 +262,22 @@ classdef main2 < matlab.apps.AppBase
             end
         end
 
+        function A_c = Concentracion_Ac(~, PET_volume,RescaleSlope,cortes)
+            PET_volume = double(PET_volume);
+            A_c = zeros(size(PET_volume));
+            for n = 1:cortes
+                A_c(:,:,n) = PET_volume(:,:,n)*RescaleSlope(n);%app.ac_cont
+            end
+        end        
         
         function [volumen,info, loc_vector,tiempo,RescaleSlope] = load_dicom_data(~,directorio,carpeta,modalidad,cortes,pt_true)
             % cargamos la lista de archivos en la carpeta
             % WindowWidth,ancho,altura,ImagePositionPatient,PixelSpacing
             lista = dir(fullfile(directorio,carpeta,modalidad));
-            if pt_true == 1
-                lista = flipud([char({lista.name})]);
-            else
-                lista = [char({lista.name})];
-            end
-
-
+            lista = [char({lista.name})];
             info = dicominfo(fullfile(directorio,carpeta,lista(1,:)));
             ancho = double(info.Width);
             altura = double(info.Height);
-            
             loc_vector = zeros(1,cortes);
             tiempo = zeros(1,cortes);
             RescaleSlope = zeros(1,cortes);
@@ -280,18 +286,24 @@ classdef main2 < matlab.apps.AppBase
             else 
                 volumen = zeros(altura,ancho,cortes,'double');
             end
+            loc_slice = zeros(1,cortes);
             for n = 1:cortes
                 info_corte = dicominfo(fullfile(directorio,carpeta,lista(n,:)));
+                loc_slice(n) = info_corte.SliceLocation;
+            end
+            [~,Slicesorted] = sort(loc_slice);
+            for n = 1:cortes
+                n_corte_instance = Slicesorted(n);
+                info_corte = dicominfo(fullfile(directorio,carpeta,lista(n_corte_instance,:)));
                 AcquisitionTime = info_corte.AcquisitionTime;
                 RescaleSlope(1,n) = info_corte.RescaleSlope;
                 hora = str2double(AcquisitionTime(1:2));
                 minutos = str2double(AcquisitionTime(3:4));
                 segundos = str2double(AcquisitionTime(5:end));
                 tiempo(1,n) = hora*60+minutos+segundos/60;
-                info = dicominfo(fullfile(directorio,carpeta,lista(n,:)));
-                loc_vector(1,n) = info.SliceLocation;
+                loc_vector(1,n_corte_instance) = info_corte.SliceLocation;
                 if pt_true == 1
-                    volumen(:,:,n) = dicomread(info);
+                    volumen(:,:,n) = dicomread(info_corte);
                 else 
                     volumen(:,:,n) = double(dicomread(info_corte))*info_corte.RescaleSlope+info_corte.RescaleIntercept; 
                 end
@@ -314,7 +326,7 @@ classdef main2 < matlab.apps.AppBase
             app.IniciarButton.Enable ="on";
             hold(app.UIAxes5,"on")
             x_cord = [-app.RadiocmEditField.Value app.RadiocmEditField.Value app.RadiocmEditField.Value -app.RadiocmEditField.Value];
-            y_cord = [1000 1000 -1000 -1000];
+            y_cord = [1 1 -1 -1]*1e10;
             app.fwhm_shadow = fill(app.UIAxes5,x_cord,y_cord,'cyan','FaceAlpha',0.3,'EdgeAlpha',0);
             if app.PromedioButton.Value
                 c_z = [x y];
@@ -325,35 +337,30 @@ classdef main2 < matlab.apps.AppBase
                 %pos_x = [c_x-r 2*r 2*r];
                 %pos_y = [c_y-r 2*r 2*r];
                 app.fwhm_fig = rectangle(app.UIAxes2,'Position',pos_z,'Curvature',[1 1],'EdgeColor','y');
-                %
-                tam = size(app.SUV_pt(:,:,:));
-                [x_1,y_1] = meshgrid(1:tam(2),1:tam(1));
-                [z_1,y_2] = meshgrid(1:tam(3),1:tam(1));
-                [z_2,x_2] = meshgrid(1:tam(3),1:tam(2));
-
-                fwhm_map_z = zeros(tam(1),tam(2),'logical');
-                fwhm_map_x = zeros(tam(1),tam(3),'logical');
-                fwhm_map_y = zeros(tam(2),tam(3),'logical');
-
-                fwhm_map_z(sqrt((x_1-x).^2+(y_1-y).^2)<=r) = true;
-                fwhm_map_x(sqrt((y_2-y).^2+(z_1-z).^2)<=r) = true;
-                fwhm_map_y(sqrt((x_2-x).^2+(z_2-z).^2)<=r) = true;
+                % 
+                tam = size(app.ac_cont(:,:,:));
 
                 app.fwhm_vec_z = zeros(1,tam(3));
                 app.fwhm_vec_x = zeros(1,tam(2));
                 app.fwhm_vec_y = zeros(1,tam(1));
 
                 for n = 1:tam(3)
-                    SUV_volume_corte = app.SUV_pt(:,:,n);
-                    app.fwhm_vec_z(n) = mean(SUV_volume_corte(fwhm_map_z));
+                    %SUV_volume_corte = app.ac_cont(:,:,n);
+                    %app.fwhm_vec_z(n) = mean(SUV_volume_corte(fwhm_map_z));
+                    SUV_volume_corte = app.ac_cont(y-(r-0):y+(r-0),x,n);
+                    app.fwhm_vec_z(n) =  mean(SUV_volume_corte);
                 end
                 for n = 1:tam(2)
-                    SUV_volume_corte = squeeze(app.SUV_pt(:,n,:));
-                    app.fwhm_vec_x(n) = mean(SUV_volume_corte(fwhm_map_x));
+                    %SUV_volume_corte = squeeze(app.ac_cont(:,n,:));
+                    %app.fwhm_vec_x(n) = mean(SUV_volume_corte(fwhm_map_x));
+                    SUV_volume_corte = app.ac_cont(y-(r-0):y+(r-0),n,z);
+                    app.fwhm_vec_x(n) = mean(SUV_volume_corte);
                 end
                 for n = 1:tam(1)
-                    SUV_volume_corte = squeeze(app.SUV_pt(n,:,:));
-                    app.fwhm_vec_y(n) = mean(SUV_volume_corte(fwhm_map_y));
+                    %SUV_volume_corte = squeeze(app.ac_cont(n,:,:));
+                    %app.fwhm_vec_y(n) = mean(SUV_volume_corte(fwhm_map_y));
+                    SUV_volume_corte = app.ac_cont(n,x-(r-0):x+(r-0),z);
+                    app.fwhm_vec_y(n) = mean(SUV_volume_corte);
                 end
                 vec_z = ((0:tam(3)-1)-z)*app.ct_info.SliceThickness/10;
                 vec_x = ((0:tam(2)-1)-x)*app.pt_info.PixelSpacing(1)/10;
@@ -362,16 +369,17 @@ classdef main2 < matlab.apps.AppBase
                 app.axial_plot(2) = plot(app.UIAxes5,vec_x,app.fwhm_vec_x,"Color",'g',"LineWidth",1,"LineStyle","-",'Marker','.');
                 app.axial_plot(3) = plot(app.UIAxes5,vec_y,app.fwhm_vec_y,"Color",'r',"LineWidth",1,"LineStyle","-",'Marker','.');
             elseif app.PuntualButton.Value
-                app.IniciarButton.Enable ="off";
+                %app.IniciarButton.Enable ="off";
                 %app.fwhm_vec = squeeze(app.SUV_pt(y,x,:));
                 %app.axial_plot = plot(app.UIAxes5,1:app.cortes,app.fwhm_vec,"Color",'b',"LineWidth",1,"LineStyle","-",'Marker','.');
-                app.fwhm_vec_z = squeeze(app.SUV_pt(y,x,:));
-                app.fwhm_vec_x = squeeze(app.SUV_pt(y,:,z));
-                app.fwhm_vec_y = squeeze(app.SUV_pt(:,x,z));
-                tam = size(app.SUV_pt(:,:,:));
+                app.fwhm_vec_z = squeeze(app.ac_cont(y,x,:))';
+                app.fwhm_vec_x = squeeze(app.ac_cont(y,:,z));
+                app.fwhm_vec_y = squeeze(app.ac_cont(:,x,z))';
+                tam = size(app.ac_cont(:,:,:));
                 vec_z = ((0:tam(3)-1)-z)*app.ct_info.SliceThickness/10;
-                vec_x = ((0:tam(1)-1)-x)*app.pt_info.PixelSpacing(1)/10;
-                vec_y = ((0:tam(2)-1)-y)*app.pt_info.PixelSpacing(2)/10;
+                vec_x = ((0:tam(2)-1)-x)*app.pt_info.PixelSpacing(1)/10;
+                vec_y = ((0:tam(1)-1)-y)*app.pt_info.PixelSpacing(2)/10;
+                %
                 app.axial_plot(1) = plot(app.UIAxes5,vec_z,app.fwhm_vec_z,"Color",'b',"LineWidth",1,"LineStyle","-",'Marker','.');
                 app.axial_plot(2) = plot(app.UIAxes5,vec_x,app.fwhm_vec_x,"Color",'g',"LineWidth",1,"LineStyle","-",'Marker','.');
                 app.axial_plot(3) = plot(app.UIAxes5,vec_y,app.fwhm_vec_y,"Color",'r',"LineWidth",1,"LineStyle","-",'Marker','.');
@@ -386,34 +394,27 @@ classdef main2 < matlab.apps.AppBase
                 %pos_y = [c_y-r 2*r 2*r];
                 app.fwhm_fig = rectangle(app.UIAxes2,'Position',pos_z,'Curvature',[1 1],'EdgeColor','y');
                 %
-                tam = size(app.SUV_pt(:,:,:));
-                [x_1,y_1] = meshgrid(1:tam(2),1:tam(1));
-                [z_1,y_2] = meshgrid(1:tam(3),1:tam(1));
-                [z_2,x_2] = meshgrid(1:tam(3),1:tam(2));
-
-                fwhm_map_z = zeros(tam(1),tam(2),'logical');
-                fwhm_map_x = zeros(tam(1),tam(3),'logical');
-                fwhm_map_y = zeros(tam(2),tam(3),'logical');
-
-                fwhm_map_z(sqrt((x_1-x).^2+(y_1-y).^2)<=r) = true;
-                fwhm_map_x(sqrt((y_2-y).^2+(z_1-z).^2)<=r) = true;
-                fwhm_map_y(sqrt((x_2-x).^2+(z_2-z).^2)<=r) = true;
+                tam = size(app.ac_cont(:,:,:));
 
                 app.fwhm_vec_z = zeros(1,tam(3));
                 app.fwhm_vec_x = zeros(1,tam(2));
                 app.fwhm_vec_y = zeros(1,tam(1));
 
                 for n = 1:tam(3)
-                    SUV_volume_corte = app.SUV_pt(:,:,n);
-                    app.fwhm_vec_z(n) = max(SUV_volume_corte(fwhm_map_z));
+                    %SUV_volume_corte = app.ac_cont(:,:,n);
+                    %app.fwhm_vec_z(n) = max(SUV_volume_corte(fwhm_map_z));
+                    SUV_volume_corte = app.ac_cont(y-(r-0):y+(r-0),x,n);
+                    app.fwhm_vec_z(n) =  mean(SUV_volume_corte);
                 end
                 for n = 1:tam(2)
-                    SUV_volume_corte = squeeze(app.SUV_pt(:,n,:));
-                    app.fwhm_vec_x(n) = max(SUV_volume_corte(fwhm_map_x));
+                    SUV_volume_corte = app.ac_cont(y-(r-0):y+(r-0),n,z);
+                    app.fwhm_vec_x(n) = max(SUV_volume_corte);
                 end
                 for n = 1:tam(1)
-                    SUV_volume_corte = squeeze(app.SUV_pt(n,:,:));
-                    app.fwhm_vec_y(n) = max(SUV_volume_corte(fwhm_map_y));
+                    %SUV_volume_corte = squeeze(app.ac_cont(n,:,:));
+                    %app.fwhm_vec_y(n) = max(SUV_volume_corte(fwhm_map_y));
+                    SUV_volume_corte = app.ac_cont(n,x-(r-0):x+(r-0),z);
+                    app.fwhm_vec_y(n) = max(SUV_volume_corte);
                 end
                 vec_z = ((0:tam(3)-1)-z)*app.ct_info.SliceThickness/10;
                 vec_x = ((0:tam(2)-1)-x)*app.pt_info.PixelSpacing(1)/10;
@@ -466,7 +467,7 @@ classdef main2 < matlab.apps.AppBase
                 app.fused = CT*app.AlphaCTSlider.Value + PT*(app.AlphaPETSlider.Value);
                 app.fused = im2uint8(app.fused);
                 %%
-                if (app.SegmentadoCTButton.Value == 1 || app.SegmentadoPETButton.Value ==1 || app.SegmentadoSUVButton.Value == 1) && app.VerROICheckBox.Value == 0
+                if (app.SegmentadoPETButton.Value ==1 || app.SegmentadoSUVButton.Value == 1) && app.VerROICheckBox.Value == 0
                     tam = size(PT);
                     matriz_amarilla = zeros(tam(1),tam(2),3,'uint8');matriz_amarilla(:,:,1) = 255;matriz_amarilla(:,:,2) = 255;%matriz_amarilla(:,:,3) = 0;
                     borde_roi = edge(app.roi_map,char(app.DeteccindebordeDropDown.Items(app.DeteccindebordeDropDown.Value)));
@@ -474,7 +475,16 @@ classdef main2 < matlab.apps.AppBase
                     app.fused = uint8(not(borde_roi)).*app.fused;
                     app.fused= app.fused + matriz_amarilla;
                 end
-                if app.SegmentadoCTButton.Value == 1 || app.SegmentadoPETButton.Value ==1 || app.SegmentadoSUVButton.Value == 1
+                if app.SegmentadoPETButton.Value ==1 || app.SegmentadoSUVButton.Value == 1
+                    segment_data(app,app.SUV_pt(:,:,corte))
+                end
+                if app.SegmentadoCTButton.Value == 1 && not(app.roi_state)
+                    tam = size(PT);
+                    matriz_amarilla = zeros(tam(1),tam(2),3,'uint8');matriz_amarilla(:,:,1) = 255;matriz_amarilla(:,:,2) = 255;%matriz_amarilla(:,:,3) = 0;
+                    borde_roi = edge(app.roi_map,char(app.DeteccindebordeDropDown.Items(app.DeteccindebordeDropDown.Value)));
+                    matriz_amarilla = uint8(borde_roi).*matriz_amarilla;
+                    app.fused = uint8(not(borde_roi)).*app.fused;
+                    app.fused= app.fused + matriz_amarilla;
                     segment_data(app,app.SUV_pt(:,:,corte))
                 end
 
@@ -491,8 +501,8 @@ classdef main2 < matlab.apps.AppBase
                 app.DDMMAAAAalasHHMMSSLabel.Text = ['AcquisitionDateTime ',char(d)];
                 app.Actividad0Label.Text = ['A_0 = ',sprintf('%.3f',app.pt_info.RadiopharmaceuticalInformationSequence.Item_1.RadionuclideTotalDose* ...
                     2.7027027027027*10^(-8)),' mCi'];
-               app.vidamediaLabel.Text = ['t_1/2 = ' sprintf('%.1f',app.pt_info.RadiopharmaceuticalInformationSequence.Item_1.RadionuclideHalfLife/60) ' m'];
-               app.radionuclidoLabel.Text= app.pt_info.RadiopharmaceuticalInformationSequence.Item_1.Radiopharmaceutical;
+                app.vidamediaLabel.Text = ['t_1/2 = ' sprintf('%.2f',app.pt_info.RadiopharmaceuticalInformationSequence.Item_1.RadionuclideHalfLife/60) ' m'];
+                app.radionuclidoLabel.Text= app.pt_info.RadiopharmaceuticalInformationSequence.Item_1.Radiopharmaceutical;
                 
                 
             else
@@ -562,10 +572,11 @@ classdef main2 < matlab.apps.AppBase
 
             app.tp_line=yline(app.UIAxes4, y,'Color','y','linewidth',1);
             rule_new_fig(app)
-            if app.roi_activated %&& not(app.ptu_true)
+            if app.roi_activated && app.roi_CT_selected_state  %not(app.ptu_true)
                 ROI_fig_SUV_CT(app)
             end
             %%
+            app.roi_CT_selected_state = true;
         end
 
         function [] = lines_and_info(app,corte)
@@ -587,10 +598,26 @@ classdef main2 < matlab.apps.AppBase
         end
 
         function [] = ROI_map_SUV_CT(app,x,y,SUV_volume_corte)
+            %%
+            % roi segmentation
+            app.ROIlowEditField.Enable = "off";
+            app.ROIhightEditField.Enable ="off";
+            app.ResetsegmentacinButton.Enable = "off";
+            app.DeteccindebordeDropDown.Enable = "off";
+            % op morf
+            app.OpmofolgicaDropDown.Enable = "off";
+            app.OpmofolgicaDropDown.Value = 1;
+            app.RadiomorfEditField.Enable ="off";
+            app.ErosionarButton.Enable = "off";
+            app.DilatarButton.Enable="off";
+            %%
             app.FX1FY1Label.Visible = "off";
             app.FX2FY2Label.Visible = "off";
             app.SUVMEANLabel.Visible = "off";
             app.SUVMAXLabel.Visible = "off";
+            app.COVLabel.Visible = "off";
+            app.UILabel.Visible = "off";
+            app.SRNLabel.Visible = "off";
             roi_map_previo = zeros(size(app.pt_volume(:,:,1)),'logical');
             delete([app.PT_p1,app.PT_p2,app.roi_fig])
             if app.roi_state
@@ -598,7 +625,6 @@ classdef main2 < matlab.apps.AppBase
                 if app.cambiar_x_y 
                     app.PT_xy_p1 =[x, y];
                 end
-                %app.PT_p1 = plot(app.UIAxes3,app.PT_xy_p1(1),app.PT_xy_p1(2),'o','color','c',"HitTest","off");
                 app.FX1FY1Label.Text = ['(',int2str(app.PT_xy_p1(1)),',',int2str(app.PT_xy_p1(2)),')'];
             end
             if not(app.roi_state)
@@ -606,6 +632,9 @@ classdef main2 < matlab.apps.AppBase
                 app.FX2FY2Label.Visible = "on";
                 app.SUVMEANLabel.Visible = "on";
                 app.SUVMAXLabel.Visible = "on";
+                app.COVLabel.Visible = "on";
+                app.UILabel.Visible = "on";
+                app.SRNLabel.Visible = "on";
                 if app.cambiar_x_y
                     app.PT_xy_p2 =[x, y];
                 end
@@ -616,11 +645,22 @@ classdef main2 < matlab.apps.AppBase
                         min(app.PT_xy_p1(1),app.PT_xy_p2(1)):max(app.PT_xy_p1(1),app.PT_xy_p2(1))) = true;
                     app.roi_map = roi_map_previo;
                     roi_vec = SUV_volume_corte(app.roi_map);
-                    SUVchar = sprintf('%.2f',mean(roi_vec));
-                    SUVSDchar = sprintf('%.2f',std(roi_vec));
+                    mean_SUV = mean(roi_vec);
+                    SD_SUV = std(roi_vec);
+                    min_SUV = min(roi_vec);
+                    max_SUV = max(roi_vec);
+                    %
+                    SUVchar = sprintf('%.3f',mean_SUV);
+                    SUVSDchar = sprintf('%.3f',SD_SUV);
+                    SUVSNRchar = sprintf('%.3f',(mean_SUV)/(SD_SUV));
+                    SUVCOVchar = sprintf('%.3f',100*(SD_SUV)/(mean_SUV));
+                    SUVUIchar = sprintf('%.3f',(max_SUV-min_SUV)/(max_SUV+min_SUV));
                     app.SUVMEANLabel.Text = ['SUV_MEAN = ',SUVchar,char(177),SUVSDchar];
-                    SUVchar = sprintf('%.2f',max(roi_vec));
+                    SUVchar = sprintf('%.3f',max(roi_vec));
                     app.SUVMAXLabel.Text = ['SUV_MAX = ',SUVchar];
+                    app.COVLabel.Text = ['COV = ',SUVCOVchar,'%'];
+                    app.SRNLabel.Text = ['SNR = ',SUVSNRchar];
+                    app.UILabel.Text = ['IU = ',SUVUIchar];
                         
                 elseif app.CircularButton.Value == 1
                     tam = size(app.pt_volume(:,:,1));
@@ -628,13 +668,43 @@ classdef main2 < matlab.apps.AppBase
                     roi_map_previo(sqrt((x-app.PT_xy_p1(1)).^2+(y-app.PT_xy_p1(2)).^2)<=norm(app.PT_xy_p2-app.PT_xy_p1)) = true;
                     app.roi_map = roi_map_previo;
                     roi_vec = SUV_volume_corte(app.roi_map);
-                    SUVchar = sprintf('%.2f',mean(roi_vec));
-                    SUVSDchar = sprintf('%.2f',std(roi_vec));
+                    mean_SUV = mean(roi_vec);
+                    SD_SUV = std(roi_vec);
+                    min_SUV = min(roi_vec);
+                    max_SUV = max(roi_vec);
+                    %%
+                    SUVchar = sprintf('%.3f',mean_SUV);
+                    SUVSDchar = sprintf('%.3f',SD_SUV);
+                    SUVSNRchar = sprintf('%.3f',(mean_SUV)/(SD_SUV));
+                    SUVCOVchar = sprintf('%.3f',100*(SD_SUV)/(mean_SUV));
+                    SUVUIchar = sprintf('%.3f',(max_SUV-min_SUV)/(max_SUV+min_SUV));
                     app.SUVMEANLabel.Text = ['SUV_MEAN = ',SUVchar,char(177),SUVSDchar];
-                    SUVchar = sprintf('%.2f',max(roi_vec));
+                    SUVchar = sprintf('%.3f',max(roi_vec));
                     app.SUVMAXLabel.Text = ['SUV_MAX = ',SUVchar];
+                    app.COVLabel.Text = ['COV = ',SUVCOVchar,'%'];
+                    app.SRNLabel.Text = ['SNR = ',SUVSNRchar];
+                    app.UILabel.Text = ['IU = ',SUVUIchar];
+               elseif app.SegmentadoCTButton.Value == 1
+                    % roi segmentation
+                    app.ROIlowEditField.Enable = "on";
+                    app.ROIhightEditField.Enable ="on";
+                    %app.ResetsegmentacinButton.Enable = "on";
+                    app.DeteccindebordeDropDown.Enable = "on";
+                    % op morf
+                    app.OpmofolgicaDropDown.Enable = "on";
+                    app.OpmofolgicaDropDown.Value = 1;
+                    app.RadiomorfEditField.Enable ="on";
+                    app.ErosionarButton.Enable = "on";
+                    app.DilatarButton.Enable="on";
+                    %% ct MINI
+                    if  app.roi_CT_selected_state
+                        app.roi_map = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
+                            roi_map_previo(min(app.PT_xy_p1(2),app.PT_xy_p2(2)):max(app.PT_xy_p1(2),app.PT_xy_p2(2)),...
+                            min(app.PT_xy_p1(1),app.PT_xy_p2(1)):max(app.PT_xy_p1(1),app.PT_xy_p2(1))) = true;
+                        app.roi_map = logical(double(app.roi_map).*double(roi_map_previo));
+                    end
                 end
-                
+                %
             end
         end
 
@@ -657,12 +727,16 @@ classdef main2 < matlab.apps.AppBase
                         r = norm(app.PT_xy_p2-app.PT_xy_p1);
                         pos = [c-r 2*r 2*r];
                         app.roi_fig = rectangle(app.UIAxes3,'Position',pos,'Curvature',[1 1],'EdgeColor','y');
-                        %app.roi_fig = viscircles(app.UIAxes3,app.PT_xy_p1,norm(app.PT_xy_p2-app.PT_xy_p1),'Color','y');
+                    elseif app.SegmentadoCTButton.Value == 1
+                        x = min(app.PT_xy_p1(1),app.PT_xy_p2(1));
+                        y = min(app.PT_xy_p1(2),app.PT_xy_p2(2));
+                        w = abs(app.PT_xy_p2(1)-app.PT_xy_p1(1));
+                        h = abs(app.PT_xy_p2(2)-app.PT_xy_p1(2));
+                        app.roi_fig = rectangle(app.UIAxes3,'Position',[x y w h],'EdgeColor','g','LineWidth',0.1);
+                        %%
                     end
                 end
             end
-
-           
 
         function [] = rule(app,x,y)
             app.XX1YY1Label.Visible = "off";
@@ -710,12 +784,26 @@ classdef main2 < matlab.apps.AppBase
         function [] = segment_data(app,SUV_volume)
             app.SUVMEANLabel.Visible = "on";
             app.SUVMAXLabel.Visible = "on";
+            app.COVLabel.Visible = "on";
+            app.UILabel.Visible = "on";
+            app.SRNLabel.Visible = "on";
             roi_vec = SUV_volume(app.roi_map);
-            SUVchar = sprintf('%.2f',mean(roi_vec));
-            SUVSDchar = sprintf('%.2f',std(roi_vec));
+            mean_SUV = mean(roi_vec);
+            SD_SUV = std(roi_vec);
+            min_SUV = min(roi_vec);
+            max_SUV = max(roi_vec);
+            %%
+            SUVchar = sprintf('%.3f',mean_SUV);
+            SUVSDchar = sprintf('%.3f',SD_SUV);
+            SUVSNRchar = sprintf('%.3f',(mean_SUV)/(SD_SUV));
+            SUVCOVchar = sprintf('%.3f',100*(SD_SUV)/(mean_SUV));
+            SUVUIchar = sprintf('%.3f',(max_SUV-min_SUV)/(max_SUV+min_SUV));
             app.SUVMEANLabel.Text = ['SUV_MEAN = ',SUVchar,char(177),SUVSDchar];
-            SUVchar = sprintf('%.2f',max(roi_vec));
+            SUVchar = sprintf('%.3f',max(roi_vec));
             app.SUVMAXLabel.Text = ['SUV_MAX = ',SUVchar];
+            app.COVLabel.Text = ['COV = ',SUVCOVchar,'%'];
+            app.SRNLabel.Text = ['SNR = ',SUVSNRchar];
+            app.UILabel.Text = ['IU = ',SUVUIchar];
 
         end
 
@@ -911,8 +999,12 @@ classdef main2 < matlab.apps.AppBase
                 app.output = "[OK] SUV sin corregir calculado correctamente."+newline+app.output;
                 app.outputTextArea.Value =  app.output;  
                 drawnow('limitrate')
+                %
+                app.ac_cont = Concentracion_Ac(app, app.pt_volume,pt_RescaleSlope,app.cortes);
+                app.output = "[OK] Concentracion de Actividad sin corregir calculado correctamente."+newline+app.output;
+                app.outputTextArea.Value =  app.output;
+                drawnow('limitrate')
                 %%
-                
                 pause(0.2)
                 app.output = "[OK] Datos PET/PETu cortados correctamente."+newline+app.output;
                 %%
@@ -1005,6 +1097,9 @@ classdef main2 < matlab.apps.AppBase
                 app.FX2FY2Label.Visible = "off";
                 app.SUVMEANLabel.Visible = "off";
                 app.SUVMAXLabel.Visible = "off";
+                app.COVLabel.Visible = "off";
+                app.UILabel.Visible = "on";
+                app.SRNLabel.Visible = "on";
                 app.roi_map = ones(size(app.pt_volume(:,:,1)),'logical');
                 app.roi_activated = false;
                 app.ROIlowEditField.Enable ="off";
@@ -1079,7 +1174,7 @@ classdef main2 < matlab.apps.AppBase
         % Button down function: UIAxes3
         function UIAxes3ButtonDown(app, event)
             
-            if app.NingunaButton.Value == 0 && app.SegmentadoCTButton.Value == 0 && app.SegmentadoPETButton.Value == 0
+            if app.NingunaButton.Value == 0 && app.SegmentadoSUVButton.Value == 0 && app.SegmentadoPETButton.Value == 0
                 app.roi_state = not(app.roi_state);
                 app.roi_activated = true;
                 P = get(app.UIAxes3,'CurrentPoint'); 
@@ -1088,8 +1183,6 @@ classdef main2 < matlab.apps.AppBase
                 app.cambiar_x_y = true;
                 draw_figs(app,app.CorteSlider.Value,x,y)
                 lines_and_info(app,app.CorteSlider.Value)
-                
-                
             end
             
         end
@@ -1112,6 +1205,9 @@ classdef main2 < matlab.apps.AppBase
             app.FX2FY2Label.Visible = "off";
             app.SUVMEANLabel.Visible = "off";
             app.SUVMAXLabel.Visible = "off";
+            app.COVLabel.Visible = "off";
+            app.UILabel.Visible = "off";
+            app.SRNLabel.Visible = "off";
             % roi segmentation
             app.ROIlowEditField.Enable = "off";
             app.ROIhightEditField.Enable ="off";
@@ -1127,9 +1223,9 @@ classdef main2 < matlab.apps.AppBase
             delete([app.PT_p1,app.PT_p2,app.roi_fig])
 
             if app.SegmentadoCTButton.Value == 1
-                app.ROIlowEditField.Value = -20;
-                app.ROIhightEditField.Value = 20;
-                app.roi_map = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
+                 app.ROIlowEditField.Value = -20;
+                 app.ROIhightEditField.Value = 20;
+            %     app.roi_map = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
             elseif app.SegmentadoPETButton.Value == 1
                 app.ROIlowEditField.Value = round(0.8*double(app.pt_info.LargestImagePixelValue));
                 app.ROIhightEditField.Value = double(app.pt_info.LargestImagePixelValue);
@@ -1139,8 +1235,7 @@ classdef main2 < matlab.apps.AppBase
                 app.ROIhightEditField.Value = max(max(app.SUV_pt(:,:,round(app.CorteSlider.Value))));
                 app.roi_map = roicolor(app.SUV_pt(:,:,app.CorteSlider.Value),app.ROIlowEditField.Value,app.ROIhightEditField.Value);
             end
-            if app.SegmentadoCTButton.Value == 1 || app.SegmentadoPETButton.Value ==1 || app.SegmentadoSUVButton.Value == 1
-                
+            if app.SegmentadoPETButton.Value ==1 || app.SegmentadoSUVButton.Value == 1
                 % roi segmentation
                 app.ROIlowEditField.Enable = "on";
                 app.ROIhightEditField.Enable ="on";
@@ -1167,11 +1262,14 @@ classdef main2 < matlab.apps.AppBase
 
         % Button pushed function: ResetsegmentacinButton
         function ResetsegmentacinButtonPushed(app, event)
+            app.roi_CT_selected_state = false;
+            %
             app.roi_map = ones(size(app.pt_volume(:,:,1)),'logical');
-            if app.SegmentadoCTButton.Value == 1
+            if app.SegmentadoCTButton.Value == 1 && not(app.roi_state)
+                app.roi_map = zeros(size(app.pt_volume(:,:,1)),'logical');
                 app.ROIlowEditField.Value = -20;
                 app.ROIhightEditField.Value = 20;
-                app.roi_map = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
+                %app.roi_map = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
            elseif app.SegmentadoPETButton.Value == 1
                 app.ROIlowEditField.Value = round(0.8*double(app.pt_info.LargestImagePixelValue));
                 app.ROIhightEditField.Value = double(app.pt_info.LargestImagePixelValue);
@@ -1189,6 +1287,8 @@ classdef main2 < matlab.apps.AppBase
 
         % Value changed function: ROIlowEditField
         function ROIlowEditFieldValueChanged(app, event)
+           app.roi_CT_selected_state = false;
+           % 
            app.roi_map = ones(size(app.pt_volume(:,:,1)),'logical');
            if app.SegmentadoCTButton.Value == 1
                 app.roi_map = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
@@ -1205,6 +1305,8 @@ classdef main2 < matlab.apps.AppBase
 
         % Value changed function: ROIhightEditField
         function ROIhightEditFieldValueChanged(app, event)
+           app.roi_CT_selected_state = false;
+           % 
            app.roi_map = ones(size(app.pt_volume(:,:,1)),'logical');
            if app.SegmentadoCTButton.Value == 1
                 app.roi_map = roicolor(app.CT_resized,app.ROIlowEditField.Value,app.ROIhightEditField.Value);
@@ -1220,6 +1322,8 @@ classdef main2 < matlab.apps.AppBase
 
         % Button pushed function: DilatarButton
         function DilatarButtonPushed(app, event)
+            app.roi_CT_selected_state = false;
+            % 
             estruc = strel(char(app.OpmofolgicaDropDown.Items(app.OpmofolgicaDropDown.Value)),app.RadiomorfEditField.Value);
             app.roi_map = imdilate(app.roi_map,estruc);
             draw_figs(app,app.CorteSlider.Value,1,1)
@@ -1228,6 +1332,8 @@ classdef main2 < matlab.apps.AppBase
 
         % Button pushed function: ErosionarButton
         function ErosionarButtonPushed(app, event)
+            app.roi_CT_selected_state = false;
+            % 
             estruc = strel(char(app.OpmofolgicaDropDown.Items(app.OpmofolgicaDropDown.Value)),app.RadiomorfEditField.Value);
             app.roi_map = imerode(app.roi_map,estruc);
             draw_figs(app,app.CorteSlider.Value,1,1)
@@ -1237,6 +1343,8 @@ classdef main2 < matlab.apps.AppBase
         % Value changed function: DeteccindebordeDropDown
         function DeteccindebordeDropDownValueChanged(app, event)
             %value = app.DeteccindebordeDropDown.Value;
+            app.roi_CT_selected_state = false;
+            %
             app.cambiar_x_y = false;
             draw_figs(app,app.CorteSlider.Value,1,1)
             lines_and_info(app,app.CorteSlider.Value)
@@ -1257,7 +1365,11 @@ classdef main2 < matlab.apps.AppBase
             %app.files(app.imag_index)
             file_name = 'PT_CT_fused';%
             new_imag_dir = fullfile(save_dir,[file_name,'_',char(datetime('now','TimeZone','local','Format','d_MMM_y_HH_mm_ss_ms')),'.png']);
-            imwrite(app.fused, new_imag_dir);
+            if app.VerROICheckBox.double
+                imwrite(uint8(app.roi_map).*app.fused, new_imag_dir);
+            else
+                imwrite(app.fused, new_imag_dir);
+            end
             app.output = "[OK] Imagen guardada como: " + convertCharsToStrings(new_imag_dir) + newline + app.output;
             app.outputTextArea.Value = app.output;
             pause(1)
@@ -1442,7 +1554,7 @@ classdef main2 < matlab.apps.AppBase
                     f_y = fit(x_data_Y,y_data_Y,modelo_ajuste,"StartPoint",StartPoints_y,'Normalize','off');
                     %% eliminamos algunos elementos gráficos
                     delete(app.axial_plot)
-                    num_ponints = 1000;
+                    num_ponints = 2000;
                     linsZ = linspace(vec_z(closestIndex_z_left),vec_z(closestIndex_z_right),num_ponints);
                     linsX = linspace(vec_x(closestIndex_x_left),vec_x(closestIndex_x_right),num_ponints);
                     linsY = linspace(vec_y(closestIndex_y_left),vec_y(closestIndex_y_right),num_ponints);
@@ -1455,7 +1567,7 @@ classdef main2 < matlab.apps.AppBase
                     app.fwhm_points(3) = plot(app.UIAxes5,vec_y(closestIndex_y_left:closestIndex_y_right),y_data_Y,"Color",'r',"LineStyle","none",'Marker','.');
                     %%
                     sigma = sqrt(8*log(2));
-                    FWHM_z = f_z.d*sigma*app.ct_info.SliceThickness/10;
+                    FWHM_z = f_z.d*sigma*app.pt_info.SliceThickness/10;
                     FWHM_x = f_x.d*sigma*app.pt_info.PixelSpacing(1)/10;
                     FWHM_y = f_y.d*sigma*app.pt_info.PixelSpacing(2)/10;
                     [max_z,maxFWHM_loc_z] = max(f_z(linspace(x_data_Z(1),x_data_Z(end),num_ponints)));
@@ -1468,11 +1580,11 @@ classdef main2 < matlab.apps.AppBase
                     %%
                     pause(0.5)
                     
-                    app.output = "FWHM z: "+convertCharsToStrings(num2str(FWHM_z))+"cm"+newline+app.output; 
+                    app.output = "FWHM z: "+convertCharsToStrings(num2str(FWHM_z*10))+"mm"+newline+app.output; 
                     app.outputTextArea.Value = app.output;
-                    app.output = "FWHM x: "+convertCharsToStrings(num2str(FWHM_x))+"cm"+newline+app.output; 
+                    app.output = "FWHM x: "+convertCharsToStrings(num2str(FWHM_x*10))+"mm"+newline+app.output; 
                     app.outputTextArea.Value = app.output;
-                    app.output = "FWHM y: "+convertCharsToStrings(num2str(FWHM_y))+"cm"+newline+app.output; 
+                    app.output = "FWHM y: "+convertCharsToStrings(num2str(FWHM_y*10))+"mm"+newline+app.output; 
                     app.outputTextArea.Value = app.output;
                     %%
                     pause(1)
@@ -1490,8 +1602,48 @@ classdef main2 < matlab.apps.AppBase
                     % definimos el modelo 
                     
             end
+            if app.GxlsxCheckBox.Value && app.NumricoCheckBox.Value
+                r = app.RadioEditField.Value;
+                serie = replace(replace(app.pt_info.SeriesDescription, '/', '_'), ' ', '_');
+                if app.PromedioButton.Value
+                    operacion = 'mean';
+                    nombre_mat_file = ['fwhm_',operacion,'_', '_r',sprintf('%03d', r),'_x',sprintf('%03d', x),'_y',sprintf('%03d', y),'z_',sprintf('%03d', z),'_',serie];
+                elseif app.MximoButton.Value
+                    operacion = 'maxi';
+                    nombre_mat_file = ['fwhm_',operacion,'_', '_r',sprintf('%03d', r),'_x',sprintf('%03d', x),'_y',sprintf('%03d', y),'z_',sprintf('%03d', z),'_',serie];
+                elseif app.PuntualButton.Value
+                    operacion = 'punt';
+                    %r = 'N';
+                    nombre_mat_file = ['fwhm_',operacion,'_', '_rN','_x',sprintf('%03d', x),'_y',sprintf('%03d', y),'z_',sprintf('%03d', z),'_',serie];
+                end
+
+
+                PET_info = app.pt_info;
+                save(nombre_mat_file,'x','y','z','nombre_mat_file',...
+                    'x_data_Z','x_data_X','x_data_Y',...
+                    'y_data_Z','y_data_X','y_data_Y',...
+                    'f_z','f_x','f_y','PET_info','linsZ','linsX','linsY');
+                app.output = "[!] Archivo MAT guardado." +newline+app.output;
+                app.outputTextArea.Value = app.output;
+            end
             %app.axial_plot = plot(app.UIAxes5,1:app.cortes,app.fwhm_vec,"Color",'b',"LineWidth",1,"LineStyle","-");
             on_off_all(app,'on')
+        end
+
+        % Value changed function: RadiocmEditField
+        function RadiocmEditFieldValueChanged(app, event)
+            app.cambiar_x_y = false;
+            draw_figs(app,app.CorteSlider.Value,1,1)
+            lines_and_info(app,app.CorteSlider.Value)
+            
+        end
+
+        % Value changed function: RadioEditField
+        function RadioEditFieldValueChanged(app, event)
+            app.cambiar_x_y = false;
+            draw_figs(app,app.CorteSlider.Value,1,1)
+            lines_and_info(app,app.CorteSlider.Value)
+            
         end
 
         % Button pushed function: Button_5
@@ -1618,11 +1770,11 @@ classdef main2 < matlab.apps.AppBase
             if app.PuntualCheckBox.Value
                 app.NumricoCheckBox.Value = 0;
                 % activamos componentes
-                app.RadioEditField.Enable = "on";
+                %app.RadioEditField.Enable = "on";
                 app.UmbralEditField.Enable = "on";
             else
                 app.NumricoCheckBox.Value = 1;
-                app.RadioEditField.Enable = "off";
+                %app.RadioEditField.Enable = "off";
                 app.UmbralEditField.Enable = "off";
             end
             
@@ -1634,7 +1786,7 @@ classdef main2 < matlab.apps.AppBase
             if app.NumricoCheckBox.Value
                 app.PuntualCheckBox.Value = 0;
                 % activamos componentes
-                app.RadioEditField.Enable = "off";
+                %app.RadioEditField.Enable = "off";
                 app.UmbralEditField.Enable = "off";
             else
                 app.PuntualCheckBox.Value = 1;
@@ -1704,7 +1856,7 @@ classdef main2 < matlab.apps.AppBase
 
             % Create UIAxes2
             app.UIAxes2 = uiaxes(app.PositroniumdotMATMododetomografaUIFigure);
-            title(app.UIAxes2, 'PET/PET uncorrected')
+            title(app.UIAxes2, 'PET/SUV')
             zlabel(app.UIAxes2, 'Z')
             app.UIAxes2.PlotBoxAspectRatio = [1 1 1];
             app.UIAxes2.XTick = [];
@@ -1736,7 +1888,7 @@ classdef main2 < matlab.apps.AppBase
             app.UIAxes5 = uiaxes(app.PositroniumdotMATMododetomografaUIFigure);
             title(app.UIAxes5, 'FWHM total')
             xlabel(app.UIAxes5, 'Corte (cm)')
-            ylabel(app.UIAxes5, 'SUV')
+            ylabel(app.UIAxes5, 'A_c [Bq/ml]')
             zlabel(app.UIAxes5, 'Z')
             app.UIAxes5.Layer = 'top';
             app.UIAxes5.GridLineWidth = 0.1;
@@ -1787,8 +1939,8 @@ classdef main2 < matlab.apps.AppBase
             app.AlphaCTSlider = uislider(app.PositroniumdotMATMododetomografaUIFigure);
             app.AlphaCTSlider.Limits = [0 1];
             app.AlphaCTSlider.ValueChangedFcn = createCallbackFcn(app, @AlphaCTSliderValueChanged, true);
-            app.AlphaCTSlider.Enable = 'off';
             app.AlphaCTSlider.FontSize = 9;
+            app.AlphaCTSlider.Enable = 'off';
             app.AlphaCTSlider.Position = [935 111 119 3];
             app.AlphaCTSlider.Value = 0.5;
 
@@ -1803,8 +1955,8 @@ classdef main2 < matlab.apps.AppBase
             app.AlphaPETSlider = uislider(app.PositroniumdotMATMododetomografaUIFigure);
             app.AlphaPETSlider.Limits = [0 1];
             app.AlphaPETSlider.ValueChangedFcn = createCallbackFcn(app, @AlphaPETSliderValueChanged, true);
-            app.AlphaPETSlider.Enable = 'off';
             app.AlphaPETSlider.FontSize = 9;
+            app.AlphaPETSlider.Enable = 'off';
             app.AlphaPETSlider.Position = [937 42 116 3];
             app.AlphaPETSlider.Value = 0.5;
 
@@ -1818,8 +1970,8 @@ classdef main2 < matlab.apps.AppBase
             app.CorteSlider = uislider(app.PositroniumdotMATMododetomografaUIFigure);
             app.CorteSlider.Limits = [1 97];
             app.CorteSlider.ValueChangedFcn = createCallbackFcn(app, @CorteSliderValueChanged, true);
-            app.CorteSlider.Enable = 'off';
             app.CorteSlider.FontSize = 10;
+            app.CorteSlider.Enable = 'off';
             app.CorteSlider.Position = [506 80 264 3];
             app.CorteSlider.Value = 1;
 
@@ -2073,7 +2225,7 @@ classdef main2 < matlab.apps.AppBase
 
             % Create DeteccindebordeDropDown
             app.DeteccindebordeDropDown = uidropdown(app.PositroniumdotMATMododetomografaUIFigure);
-            app.DeteccindebordeDropDown.Items = {'zerocross', 'log', 'Canny', 'approxcanny', 'Roberts', 'Prewitt', 'Sobel'};
+            app.DeteccindebordeDropDown.Items = {'Canny', 'log', 'zerocross', 'approxcanny', 'Roberts', 'Prewitt', 'Sobel'};
             app.DeteccindebordeDropDown.ItemsData = [1 2 3 4 5 6 7];
             app.DeteccindebordeDropDown.ValueChangedFcn = createCallbackFcn(app, @DeteccindebordeDropDownValueChanged, true);
             app.DeteccindebordeDropDown.Enable = 'off';
@@ -2161,6 +2313,7 @@ classdef main2 < matlab.apps.AppBase
 
             % Create RadioEditField
             app.RadioEditField = uieditfield(app.FWHMButtonGroup, 'numeric');
+            app.RadioEditField.ValueChangedFcn = createCallbackFcn(app, @RadioEditFieldValueChanged, true);
             app.RadioEditField.FontSize = 10;
             app.RadioEditField.Enable = 'off';
             app.RadioEditField.Position = [39 50 24 22];
@@ -2192,7 +2345,7 @@ classdef main2 < matlab.apps.AppBase
             app.UmbralEditField.FontSize = 10;
             app.UmbralEditField.Enable = 'off';
             app.UmbralEditField.Position = [122 50 59 22];
-            app.UmbralEditField.Value = 0.5;
+            app.UmbralEditField.Value = 100000;
 
             % Create RadiocmEditFieldLabel
             app.RadiocmEditFieldLabel = uilabel(app.FWHMButtonGroup);
@@ -2204,6 +2357,7 @@ classdef main2 < matlab.apps.AppBase
             % Create RadiocmEditField
             app.RadiocmEditField = uieditfield(app.FWHMButtonGroup, 'numeric');
             app.RadiocmEditField.Limits = [0 Inf];
+            app.RadiocmEditField.ValueChangedFcn = createCallbackFcn(app, @RadiocmEditFieldValueChanged, true);
             app.RadiocmEditField.FontSize = 10;
             app.RadiocmEditField.Enable = 'off';
             app.RadiocmEditField.Position = [72 25 40 22];
@@ -2236,6 +2390,12 @@ classdef main2 < matlab.apps.AppBase
             app.RefrescarButton.FontSize = 9;
             app.RefrescarButton.Position = [128 31 53 15];
             app.RefrescarButton.Text = 'Refrescar';
+
+            % Create GxlsxCheckBox
+            app.GxlsxCheckBox = uicheckbox(app.FWHMButtonGroup);
+            app.GxlsxCheckBox.Visible = 'off';
+            app.GxlsxCheckBox.Text = 'G. xlsx';
+            app.GxlsxCheckBox.Position = [75 1 59 22];
 
             % Create Button
             app.Button = uibutton(app.PositroniumdotMATMododetomografaUIFigure, 'push');
@@ -2302,8 +2462,30 @@ classdef main2 < matlab.apps.AppBase
             app.flipvolButton.ButtonPushedFcn = createCallbackFcn(app, @flipvolButtonPushed, true);
             app.flipvolButton.FontSize = 10;
             app.flipvolButton.Enable = 'off';
+            app.flipvolButton.Visible = 'off';
             app.flipvolButton.Position = [657 90 100 22];
             app.flipvolButton.Text = 'flip(vol)';
+
+            % Create COVLabel
+            app.COVLabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
+            app.COVLabel.FontColor = [1 1 0.0667];
+            app.COVLabel.Visible = 'off';
+            app.COVLabel.Position = [782 662 119 21];
+            app.COVLabel.Text = 'COV';
+
+            % Create SRNLabel
+            app.SRNLabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
+            app.SRNLabel.FontColor = [0 1 0];
+            app.SRNLabel.Visible = 'off';
+            app.SRNLabel.Position = [1003 662 119 22];
+            app.SRNLabel.Text = 'SRN';
+
+            % Create UILabel
+            app.UILabel = uilabel(app.PositroniumdotMATMododetomografaUIFigure);
+            app.UILabel.FontColor = [0.0588 1 1];
+            app.UILabel.Visible = 'off';
+            app.UILabel.Position = [1199 661 119 22];
+            app.UILabel.Text = 'UI';
 
             % Show the figure after all components are created
             app.PositroniumdotMATMododetomografaUIFigure.Visible = 'on';
@@ -2314,7 +2496,7 @@ classdef main2 < matlab.apps.AppBase
     methods (Access = public)
 
         % Construct app
-        function app = main2
+        function app = main2_exported
 
             % Create UIFigure and components
             createComponents(app)
